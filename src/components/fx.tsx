@@ -26,6 +26,30 @@ export function css(input: string): React.CSSProperties {
   return out as React.CSSProperties;
 }
 
+/**
+ * Expande la propiedad abreviada `border` ("2px solid #E8EBF0") en sus
+ * propiedades largas. Necesario cuando un pseudo-estado (hover/focus) cambia
+ * solo `border-color`: React advierte si conviven abreviada y larga al
+ * re-renderizar. Respeta valores largos ya presentes (no los sobrescribe).
+ */
+function expandBorderShorthand(s: Record<string, string>) {
+  const v = s.border;
+  if (v == null) return;
+  delete s.border;
+  const parts = String(v).trim().split(/\s+/);
+  // Casos sin color (p. ej. "none", "0"): solo ancho y estilo.
+  if (parts.length === 1) {
+    const only = parts[0];
+    if (s.borderWidth == null) s.borderWidth = only === "none" ? "0" : only;
+    if (s.borderStyle == null) s.borderStyle = only === "none" ? "none" : "solid";
+    return;
+  }
+  const [w, st, ...rest] = parts;
+  if (s.borderWidth == null && w) s.borderWidth = w;
+  if (s.borderStyle == null && st) s.borderStyle = st;
+  if (s.borderColor == null && rest.length) s.borderColor = rest.join(" ");
+}
+
 type FxProps = {
   as?: React.ElementType;
   base: string;
@@ -46,20 +70,28 @@ export function Fx({ as = "div", base, hover, active, focus, style, ...rest }: F
   const [f, setF] = useState(false);
   const Tag = as as React.ElementType;
 
-  const merged: React.CSSProperties = {
+  const merged = {
     ...css(base),
     ...(h && hover ? css(hover) : {}),
     ...(a && active ? css(active) : {}),
     ...(f && focus ? css(focus) : {}),
     ...(style || {}),
-  };
+  } as Record<string, string>;
+
+  // Si algún estado define `border-color` (largo), expandimos siempre la
+  // abreviada `border` para que ambos renders sean consistentes y React no
+  // advierta al alternar el pseudo-estado.
+  const usesBorderColor = [hover, active, focus].some(
+    (s) => s != null && /border-color\s*:/.test(s)
+  );
+  if (usesBorderColor) expandBorderShorthand(merged);
 
   const handlers = rest as Record<string, ((e: unknown) => void) | undefined>;
 
   return (
     <Tag
       {...rest}
-      style={merged}
+      style={merged as React.CSSProperties}
       onMouseEnter={(e: unknown) => { setH(true); handlers.onMouseEnter?.(e); }}
       onMouseLeave={(e: unknown) => { setH(false); setA(false); handlers.onMouseLeave?.(e); }}
       onMouseDown={(e: unknown) => { setA(true); handlers.onMouseDown?.(e); }}
