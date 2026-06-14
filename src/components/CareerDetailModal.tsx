@@ -1,7 +1,19 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { css, Fx } from "./fx";
+import { fetchTikTok } from "@/lib/api";
+import { getOrStart, subscribe, type SimScene } from "@/lib/simulationCache";
+
+interface ChatMsg { role: "user" | "bot"; text: string; loading?: boolean; }
+interface ActiveChapter { title: string; text: string; imageUrl?: string; }
+
+// Extrae el videoId de una URL larga de TikTok → URL embeddable.
+// Devuelve null si es un shortlink (vt.tiktok.com) que no puede embeberse.
+function toEmbedUrl(url: string): string | null {
+  const m = url.match(/\/video\/(\d+)/);
+  return m ? `https://www.tiktok.com/embed/v2/${m[1]}` : null;
+}
 
 // Datos visuales de la tarjeta abierta (estructuralmente compatible con
 // el estado `modalCard` de VocaTwin).
@@ -37,6 +49,10 @@ function buildChapters(name: string) {
       title: "El futuro que te espera",
       text: `El mañana de ${name} está lleno de oportunidades. Conoce hacia dónde se dirige esta carrera y por qué puede ser la decisión que cambie tu vida.`,
     },
+    {
+      title: "Tu impacto en el mundo",
+      text: `Como profesional de ${name} tendrás la oportunidad de transformar tu entorno, liderar cambios y dejar una huella duradera en la sociedad.`,
+    },
   ];
 }
 
@@ -56,21 +72,137 @@ export default function CareerDetailModal({
   card,
   onClose,
   onChoose,
+  isLoggedIn = false,
 }: {
   card: CareerCard;
   onClose: () => void;
   onChoose?: (career: string) => void;
+  isLoggedIn?: boolean;
 }) {
   const [moreInfo, setMoreInfo] = useState(false);
   const [chapter, setChapter] = useState(0);
-  const [dir, setDir] = useState<1 | -1>(1); // dirección de transición
+  const [dir, setDir] = useState<1 | -1>(1);
   const [playing, setPlaying] = useState(true);
   const [confirm, setConfirm] = useState(false);
   const [chosen, setChosen] = useState(false);
 
+  // ── Simulation (AI story) state ───────────────────────────────────────────
+  const [simScenes, setSimScenes] = useState<SimScene[]>([]);
+  const [simLoading, setSimLoading] = useState(false);
+
+  // ── Chat state ────────────────────────────────────────────────────────────
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [inputText, setInputText] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const conversationId = useRef(`cv-${Date.now()}`);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const sendChat = useCallback(async (userText: string) => {
+    if (!userText.trim() || chatLoading) return;
+    const question = userText.trim();
+    setInputText("");
+    const mensaje = question;
+
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", text: question },
+      { role: "bot", text: "", loading: true },
+    ]);
+    setChatLoading(true);
+
+    try {
+      const res = await fetch("/proxy/api/chat/career", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ career: card.name, mensaje: question, conversationId: conversationId.current }),
+      });
+
+      if (!res.ok) {
+        setMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = { role: "bot", text: "Lo siento, no pude conectarme al asistente.", loading: false };
+          return copy;
+        });
+        return;
+      }
+
+      const text = await res.text();
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = { role: "bot", text: text || "Sin respuesta.", loading: false };
+        return copy;
+      });
+    } catch {
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = { role: "bot", text: "Error al conectar con el asistente.", loading: false };
+        return copy;
+      });
+    } finally {
+      setChatLoading(false);
+    }
+  }, [card.name, chatLoading]);
+
+  // Auto-scroll al fondo del chat al recibir nuevos mensajes
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // TikTok del servicio vocatwin
+  const [tiktokUrl, setTiktokUrl] = useState<string | null>(null);
+  const [tiktokLoading, setTiktokLoading] = useState(true);
+  const directEmbed = tiktokUrl ? toEmbedUrl(tiktokUrl) : null;
+  const [resolvedEmbed, setResolvedEmbed] = useState<string | null>(null);
+  const embedUrl = directEmbed ?? resolvedEmbed;
+
+  useEffect(() => {
+    setTiktokLoading(true);
+    setResolvedEmbed(null);
+    console.log(`[CareerDetail] GET /api/recommendations/search?career=${card.name}`);
+    fetchTikTok(card.name)
+      .then((rec) => {
+        console.log(`[CareerDetail] ✅ TikTok recibido:`, rec);
+        setTiktokUrl(rec.tiktokUrl);
+      })
+      .catch((err) => {
+        console.warn(`[CareerDetail] ⚠️ Sin TikTok para "${card.name}":`, err);
+        setTiktokUrl(null);
+      })
+      .finally(() => setTiktokLoading(false));
+  }, [card.name]);
+
+  // Si la URL es un shortlink (sin videoId), la resolvemos server-side
+  useEffect(() => {
+    if (!tiktokUrl || directEmbed) return;
+    console.log(`[CareerDetail] Resolviendo shortlink: ${tiktokUrl}`);
+    fetch(`/api/resolve-tiktok?url=${encodeURIComponent(tiktokUrl)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const embed = data.resolvedUrl ? toEmbedUrl(data.resolvedUrl) : null;
+        console.log(`[CareerDetail] ✅ Shortlink resuelto → embed: ${embed}`);
+        setResolvedEmbed(embed);
+      })
+      .catch((err) => console.warn("[CareerDetail] ⚠️ No se pudo resolver shortlink:", err));
+  }, [tiktokUrl, directEmbed]);
+
   const chapters = useMemo(() => buildChapters(card.name), [card.name]);
-  const total = chapters.length;
-  const current = chapters[chapter];
+
+  // Merge AI scenes progressively as they arrive; fallback to static for missing slots
+  const activeChapters = useMemo<ActiveChapter[]>(() => {
+    const count = Math.max(simScenes.length, chapters.length);
+    return Array.from({ length: count }, (_, i) => {
+      const scene = simScenes[i];
+      const fallback = chapters[i];
+      return {
+        title: fallback?.title ?? `Año ${(i + 1) * 2}`,
+        text: scene?.narrative ?? fallback?.text ?? "",
+        imageUrl: scene?.imageUrl,
+      };
+    });
+  }, [simScenes, chapters]);
+
+  const total = activeChapters.length;
+  const current = activeChapters[Math.min(chapter, Math.max(0, total - 1))];
 
   const goTo = (next: number, d: 1 | -1) => {
     setDir(d);
@@ -103,6 +235,48 @@ export default function CareerDetailModal({
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moreInfo, confirm, chapter]);
+
+  // Storytelling IA desde el caché compartido (nivel 1). Si ya se prefetcheó
+  // tras el test, aparece instantáneo; si no, se prioriza y se pinta progresivo.
+  useEffect(() => {
+    if (!moreInfo) {
+      setSimScenes([]);
+      setSimLoading(false);
+      window.speechSynthesis?.cancel();
+      return;
+    }
+    const sync = () => {
+      const entry = getOrStart(card.name);
+      setSimScenes(entry.scenes);
+      setSimLoading(entry.status === "loading" || entry.status === "idle");
+    };
+    sync();
+    const unsub = subscribe(card.name, sync);
+    return () => unsub();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moreInfo, card.name]);
+
+  // Web Speech API: narrate the current chapter text when playing
+  useEffect(() => {
+    if (!moreInfo || !current) { window.speechSynthesis?.cancel(); return; }
+    if (!playing) { window.speechSynthesis?.cancel(); return; }
+    window.speechSynthesis?.cancel();
+    const utter = new SpeechSynthesisUtterance(current.text);
+    utter.lang = "es-PE";
+    utter.rate = 0.92;
+    const speak = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const v = voices.find(v => v.lang.startsWith("es"));
+      if (v) utter.voice = v;
+      window.speechSynthesis.speak(utter);
+    };
+    if (window.speechSynthesis.getVoices().length > 0) {
+      speak();
+    } else {
+      window.speechSynthesis.onvoiceschanged = speak;
+    }
+    return () => { window.speechSynthesis?.cancel(); };
+  }, [moreInfo, playing, chapter, current?.text]);
 
   const confirmChoose = () => {
     setChosen(true);
@@ -142,22 +316,64 @@ export default function CareerDetailModal({
             <div style={css("display: grid; grid-template-columns: 1.55fr 1fr; gap: 20px; padding: 26px; align-items: stretch;")}>
               {/* Columna izquierda: video + info */}
               <div style={css("display: flex; flex-direction: column; gap: 20px; min-width: 0;")}>
-                {/* Video */}
-                <div style={css(`position: relative; aspect-ratio: 16 / 9; border-radius: 20px; overflow: hidden; background: ${slideBg(card.color, 0)}; box-shadow: 0 18px 40px rgba(0,15,55,.18); animation: vtPop .5s cubic-bezier(.16,1,.3,1) both;`)}>
-                  <div style={css("position: absolute; inset: 0; background: radial-gradient(circle at 50% 45%, rgba(255,255,255,.18), transparent 60%);")} />
-                  <div style={css("position: absolute; inset: 0; display: grid; place-items: center;")}>
-                    <Fx
-                      as="button"
-                      base="position: relative; display: grid; place-items: center; width: 76px; height: 76px; border-radius: 50%; border: none; background: rgba(255,255,255,.95); color: #000F37; cursor: pointer; box-shadow: 0 14px 32px rgba(0,0,0,.3); transition: transform .18s cubic-bezier(.34,1.56,.64,1); animation: vtPulseSoft 2.4s ease-in-out infinite;"
-                      hover="transform: scale(1.1);"
-                      active="transform: scale(.96);"
-                    >
-                      <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5v14l12-7z" /></svg>
-                    </Fx>
-                  </div>
-                  <div style={css("position: absolute; left: 18px; bottom: 16px; display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px; border-radius: 99px; background: rgba(0,15,55,.45); backdrop-filter: blur(6px); color: #fff; font-size: 12px; font-weight: 800; letter-spacing: .03em;")}>
-                    <span style={css("width: 7px; height: 7px; border-radius: 99px; background: #FF395C;")} />
-                    VIDEO INTRODUCTORIO
+                {/* Video TikTok */}
+                <div style={css(`position: relative; height: 460px; border-radius: 22px; overflow: hidden; background: #0a0a0a; box-shadow: 0 24px 50px rgba(0,15,55,.25); animation: vtPop .5s cubic-bezier(.16,1,.3,1) both; flex-shrink: 0;`)}>
+
+                  {/* ── Cargando ── */}
+                  {tiktokLoading && (
+                    <div style={css(`position: absolute; inset: 0; display: grid; place-items: center; background: ${slideBg(card.color, 0)};`)}>
+                      <div style={css("display: flex; flex-direction: column; align-items: center; gap: 14px;")}>
+                        <div style={css("width: 40px; height: 40px; border-radius: 99px; border: 3px solid rgba(255,255,255,.25); border-top-color: #fff; animation: vtSpin .8s linear infinite;")} />
+                        <span style={css("color: rgba(255,255,255,.7); font-size: 13px; font-weight: 700;")}>Cargando video…</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Embed TikTok (URL larga → videoId) ── */}
+                  {!tiktokLoading && embedUrl && (
+                    <iframe
+                      src={embedUrl}
+                      style={css("position: absolute; top: 0; left: 0; width: 100%; height: 680px; border: none;")}
+                      allow="fullscreen; autoplay"
+                      allowFullScreen
+                      title={`TikTok - ${card.name}`}
+                    />
+                  )}
+
+                  {/* ── Shortlink: tarjeta de apertura con branding TikTok ── */}
+                  {!tiktokLoading && !embedUrl && tiktokUrl && (
+                    <div style={css(`position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 32px; background: ${slideBg(card.color, 0)};`)}>
+                      <div style={css("display: flex; flex-direction: column; align-items: center; gap: 8px;")}>
+                        <svg width="56" height="56" viewBox="0 0 24 24" fill="#fff" style={css("filter: drop-shadow(0 4px 12px rgba(0,0,0,.4));")}><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.18 8.18 0 004.77 1.52V6.75a4.85 4.85 0 01-1-.06z"/></svg>
+                        <span style={css("color: rgba(255,255,255,.6); font-size: 11px; font-weight: 800; letter-spacing: .12em;")}>TIKTOK</span>
+                      </div>
+                      <p style={css("color: #fff; font-size: 17px; font-weight: 900; text-align: center; margin: 0; line-height: 1.3; text-shadow: 0 2px 12px rgba(0,0,0,.4);")}>{card.name}</p>
+                      <a
+                        href={tiktokUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={css("display: inline-flex; align-items: center; gap: 9px; padding: 14px 26px; border-radius: 14px; background: rgba(255,255,255,.15); backdrop-filter: blur(8px); border: 1.5px solid rgba(255,255,255,.3); font-size: 14px; font-weight: 800; color: #fff; text-decoration: none; transition: background .18s ease;")}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.18 8.18 0 004.77 1.52V6.75a4.85 4.85 0 01-1-.06z"/></svg>
+                        Ver video
+                      </a>
+                    </div>
+                  )}
+
+                  {/* ── Sin video ── */}
+                  {!tiktokLoading && !tiktokUrl && (
+                    <div style={css(`position: absolute; inset: 0; display: grid; place-items: center; background: ${slideBg(card.color, 0)};`)}>
+                      <span style={css("color: rgba(255,255,255,.6); font-size: 14px; font-weight: 700;")}>Video no disponible</span>
+                    </div>
+                  )}
+
+                  {/* Degradado inferior: oculta "Related videos" del embed */}
+                  <div style={css("position: absolute; bottom: 0; left: 0; right: 0; height: 90px; background: linear-gradient(to bottom, transparent, #F2F4F8); z-index: 3; pointer-events: none;")} />
+
+                  {/* Badge TikTok */}
+                  <div style={css("position: absolute; top: 14px; left: 14px; z-index: 4; display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 99px; background: rgba(0,0,0,.55); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.12);")}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="#fff"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.33-6.34V8.69a8.18 8.18 0 004.77 1.52V6.75a4.85 4.85 0 01-1-.06z"/></svg>
+                    <span style={css("color: #fff; font-size: 11px; font-weight: 800; letter-spacing: .05em;")}>{card.name}</span>
                   </div>
                 </div>
 
@@ -195,7 +411,7 @@ export default function CareerDetailModal({
               </div>
 
               {/* Columna derecha: chatbot */}
-              <div style={css("display: flex; flex-direction: column; background: #fff; border: 1px solid #DDE1E6; border-radius: 20px; overflow: hidden; box-shadow: 0 2px 0 rgba(0,15,55,.03); min-height: 520px; animation: vtSlideRight .5s ease both; animation-delay: .08s;")}>
+              <div style={css("display: flex; flex-direction: column; background: #fff; border: 1px solid #DDE1E6; border-radius: 20px; overflow: hidden; box-shadow: 0 2px 0 rgba(0,15,55,.03); align-self: start; animation: vtSlideRight .5s ease both; animation-delay: .08s;")}>
                 <div style={css("display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid #EEF1F5;")}>
                   <span style={{ ...css("display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: #fff; flex-shrink: 0;"), background: card.color }}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8V4M8 8h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM2 14h2M20 14h2M9 13v2M15 13v2" /></svg>
@@ -209,34 +425,80 @@ export default function CareerDetailModal({
                   </div>
                 </div>
 
-                <div style={css("flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; background: #F8FAFC;")}>
-                  <div style={css("max-width: 90%; align-self: flex-start; background: #fff; border: 1px solid #EEF1F5; border-radius: 14px 14px 14px 4px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; color: #161D1F; box-shadow: 0 2px 8px rgba(0,15,55,.05); animation: vtFadeUp .45s ease both;")}>
-                    ¡Hola! 👋 Soy tu asistente sobre <b>{card.name}</b>. Elige una de las opciones para conocer más.
-                  </div>
+                <div style={css("max-height: 430px; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; background: #F8FAFC;")}>
+                  {/* Mensaje de bienvenida + acciones rápidas (solo cuando no hay mensajes) */}
+                  {messages.length === 0 && (
+                    <>
+                      <div style={css("max-width: 90%; align-self: flex-start; background: #fff; border: 1px solid #EEF1F5; border-radius: 14px 14px 14px 4px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; color: #161D1F; box-shadow: 0 2px 8px rgba(0,15,55,.05); animation: vtFadeUp .45s ease both;")}>
+                        ¡Hola! 👋 Soy tu asistente sobre <b>{card.name}</b>. Elige una pregunta o escribe la tuya.
+                      </div>
+                      <div style={css("display: flex; flex-direction: column; gap: 8px; margin-top: 4px;")}>
+                        {[
+                          "¿Cuántos años dura?",
+                          "¿Cuánto se gana?",
+                          "¿Dónde puedo trabajar?",
+                          "¿Qué habilidades necesito?",
+                          "¿Tiene buen futuro?",
+                        ].map((q, k) => (
+                          <Fx
+                            as="button"
+                            key={k}
+                            onClick={() => sendChat(q)}
+                            base={`text-align: left; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 11px 14px; border-radius: 12px; border: 1.5px solid #E8EBF0; background: #fff; color: #161D1F; transition: all .15s ease; animation: vtFadeUp .45s ease both; animation-delay: ${0.06 + k * 0.05}s;`}
+                            hover={`border-color: ${card.color}; color: ${card.color}; transform: translateX(3px);`}
+                          >
+                            {q}
+                          </Fx>
+                        ))}
+                      </div>
+                    </>
+                  )}
 
-                  <div style={css("display: flex; flex-direction: column; gap: 8px; margin-top: 4px;")}>
-                    {[
-                      "¿Cuántos años dura?",
-                      "¿Cuánto se gana?",
-                      "¿Dónde puedo trabajar?",
-                      "¿Qué habilidades necesito?",
-                      "¿Tiene buen futuro?",
-                    ].map((q, k) => (
-                      <Fx
-                        as="button"
-                        key={k}
-                        base={`text-align: left; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; padding: 11px 14px; border-radius: 12px; border: 1.5px solid #E8EBF0; background: #fff; color: #161D1F; transition: all .15s ease; animation: vtFadeUp .45s ease both; animation-delay: ${0.06 + k * 0.05}s;`}
-                        hover={`border-color: ${card.color}; color: ${card.color}; transform: translateX(3px);`}
-                      >
-                        {q}
-                      </Fx>
-                    ))}
-                  </div>
+                  {/* Historial de mensajes */}
+                  {messages.map((msg, i) => (
+                    <div
+                      key={i}
+                      style={css(
+                        msg.role === "user"
+                          ? "max-width: 80%; align-self: flex-end; animation: vtFadeUp .3s ease both;"
+                          : "max-width: 90%; align-self: flex-start; animation: vtFadeUp .3s ease both;"
+                      )}
+                    >
+                      {msg.role === "user" ? (
+                        <div style={{ ...css("padding: 11px 14px; border-radius: 14px 14px 4px 14px; font-size: 13.5px; line-height: 1.5; color: #fff; font-weight: 600;"), background: card.color }}>
+                          {msg.text}
+                        </div>
+                      ) : (
+                        <div style={css("background: #fff; border: 1px solid #EEF1F5; border-radius: 14px 14px 14px 4px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; color: #161D1F; box-shadow: 0 2px 8px rgba(0,15,55,.05); white-space: pre-wrap;")}>
+                          {msg.loading ? (
+                            <span style={css("display: inline-flex; gap: 5px; align-items: center;")}>
+                              {[0, 1, 2].map((d) => (
+                                <span key={d} style={{ ...css("width: 7px; height: 7px; border-radius: 99px; display: inline-block;"), background: card.color, animation: `vtPulseRing 1.2s ${d * 0.2}s infinite` }} />
+                              ))}
+                            </span>
+                          ) : msg.text || "…"}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <div ref={chatEndRef} />
                 </div>
 
                 <div style={css("display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-top: 1px solid #EEF1F5; background: #fff;")}>
-                  <div style={css("flex: 1; padding: 12px 16px; border-radius: 12px; background: #F2F4F8; border: 1px solid #E8EBF0; font-size: 13px; color: #848D95;")}>Escribe tu pregunta…</div>
-                  <button style={{ ...css("display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; border: none; color: #fff; cursor: pointer; flex-shrink: 0;"), background: card.color }}>
+                  <input
+                    type="text"
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendChat(inputText)}
+                    placeholder="Escribe tu pregunta…"
+                    disabled={chatLoading}
+                    style={css("flex: 1; padding: 12px 16px; border-radius: 12px; background: #F2F4F8; border: 1px solid #E8EBF0; font-size: 13px; color: #161D1F; font-family: inherit; outline: none;")}
+                  />
+                  <button
+                    onClick={() => sendChat(inputText)}
+                    disabled={chatLoading || !inputText.trim()}
+                    style={{ ...css(`display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; border: none; color: #fff; cursor: pointer; flex-shrink: 0; opacity: ${chatLoading || !inputText.trim() ? "0.5" : "1"}; transition: opacity .15s ease;`), background: card.color }}
+                  >
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z" /></svg>
                   </button>
                 </div>
@@ -275,11 +537,33 @@ export default function CareerDetailModal({
                       ...css(`position: absolute; inset: 0; background: ${slideBg(card.color, chapter)}; animation: ${dir === 1 ? "vtSlideRight" : "vtSlideLeft"} .5s ease both;`),
                     }}
                   >
-                    <div style={css("position: absolute; inset: 0; animation: vtKenBurns 30s linear both;")}>
-                      <div style={css("position: absolute; inset: 0; background: radial-gradient(circle at 30% 28%, rgba(255,255,255,.16), transparent 55%);")} />
-                    </div>
-                    <div style={css("position: absolute; top: 22px; left: 24px; font-size: 88px; font-weight: 900; color: rgba(255,255,255,.16); letter-spacing: -.04em; line-height: 1;")}>{chapter + 1}</div>
-                    <div style={css("position: absolute; left: 24px; right: 24px; bottom: 22px; color: #fff;")}>
+                    {current.imageUrl ? (
+                      <>
+                        <img
+                          key={current.imageUrl}
+                          src={current.imageUrl}
+                          alt={current.title}
+                          style={css("position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;")}
+                        />
+                        <div style={css("position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,.15), rgba(0,0,0,.55)); z-index: 2;")} />
+                      </>
+                    ) : (
+                      <>
+                        <div style={css("position: absolute; inset: 0; animation: vtKenBurns 30s linear both;")}>
+                          <div style={css("position: absolute; inset: 0; background: radial-gradient(circle at 30% 28%, rgba(255,255,255,.16), transparent 55%);")} />
+                        </div>
+                        {simLoading && (
+                          <div style={css("position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 3;")}>
+                            <div style={css("display: flex; flex-direction: column; align-items: center; gap: 10px;")}>
+                              <div style={css("width: 32px; height: 32px; border-radius: 99px; border: 3px solid rgba(255,255,255,.25); border-top-color: #fff; animation: vtSpin .8s linear infinite;")} />
+                              <span style={css("color: rgba(255,255,255,.8); font-size: 12px; font-weight: 700;")}>Generando con IA…</span>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <div style={css("position: absolute; top: 22px; left: 24px; font-size: 88px; font-weight: 900; color: rgba(255,255,255,.16); letter-spacing: -.04em; line-height: 1; z-index: 4;")}>{chapter + 1}</div>
+                    <div style={css("position: absolute; left: 24px; right: 24px; bottom: 22px; color: #fff; z-index: 4;")}>
                       <div style={css("font-size: 11px; font-weight: 800; letter-spacing: .12em; opacity: .8; margin-bottom: 6px;")}>IMAGEN DEL CAPÍTULO</div>
                       <div style={css("font-size: 22px; font-weight: 900; letter-spacing: -.02em; text-shadow: 0 4px 16px rgba(0,0,0,.35);")}>{current.title}</div>
                     </div>
@@ -367,7 +651,7 @@ export default function CareerDetailModal({
 
                 {/* Indicadores de capítulo */}
                 <div style={css("display: flex; align-items: center; justify-content: center; gap: 7px;")}>
-                  {chapters.map((_, i) => (
+                  {activeChapters.map((_, i) => (
                     <button
                       key={i}
                       onClick={() => goTo(i, i >= chapter ? 1 : -1)}
@@ -386,12 +670,12 @@ export default function CareerDetailModal({
             <div style={css("padding: 0 26px 26px;")}>
               <Fx
                 as="button"
-                onClick={() => setConfirm(true)}
+                onClick={() => { if (isLoggedIn) setConfirm(true); else onChoose?.(card.name); }}
                 base={`width: 100%; font-family: inherit; font-size: 16px; font-weight: 900; cursor: pointer; padding: 17px; border-radius: 15px; border: none; background: ${card.color}; color: #fff; box-shadow: 0 14px 32px rgba(0,15,55,.2); letter-spacing: -.01em; transition: transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s ease;`}
                 hover="transform: translateY(-3px); box-shadow: 0 20px 42px rgba(0,15,55,.28);"
                 active="transform: scale(.98);"
               >
-                ✦ Elegir esta carrera
+                {isLoggedIn ? "✦ Elegir esta carrera" : "✦ Inicia sesión para elegir esta carrera"}
               </Fx>
             </div>
           </div>

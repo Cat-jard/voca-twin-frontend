@@ -1,9 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { css, Fx } from "./fx";
+import { getAllUsers, getUserCareers } from "@/lib/api";
 
-// ── Datos estáticos de demostración ──────────────────────────────────────────
+interface RealStudent { name: string; estado: string; carrera: string; fecha: string; pct: number; }
+
+// ── Datos de respaldo (si el backend no está disponible) ─────────────────────
 const SECTIONS = ["5° A — Secundaria", "5° B — Secundaria", "4° A — Secundaria"];
 
 const METRICS = [
@@ -55,6 +58,70 @@ export default function TeacherDashboard({
   onLogout: () => void;
 }) {
   const [section, setSection] = useState(0);
+
+  // ── Datos reales del backend (alumnos + sus carreras) ──
+  const [realStudents, setRealStudents] = useState<RealStudent[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const users = await getAllUsers();
+        const alumnos = users.filter((u) => (u.tipo ?? "").toUpperCase().includes("POSTULANTE"));
+        const rows = await Promise.all(
+          alumnos.map(async (u): Promise<RealStudent> => {
+            const nombre = `${u.nombre ?? ""} ${u.apellido ?? ""}`.trim() || u.email;
+            try {
+              const careers = await getUserCareers(u.idUsuario);
+              if (!careers.length) return { name: nombre, estado: "Pendiente", carrera: "—", fecha: "—", pct: 0 };
+              const top = [...careers].sort((a, b) => b.pct - a.pct)[0];
+              const iso = careers.find((c) => c.createdAt)?.createdAt;
+              const fecha = iso ? new Date(iso).toLocaleDateString("es-PE", { day: "2-digit", month: "short" }) : "—";
+              return { name: nombre, estado: "Completado", carrera: top.career, fecha, pct: top.pct };
+            } catch {
+              return { name: nombre, estado: "Pendiente", carrera: "—", fecha: "—", pct: 0 };
+            }
+          })
+        );
+        if (!cancelled) setRealStudents(rows);
+      } catch (e) {
+        console.warn("[TeacherDashboard] ⚠️ sin datos reales (uso respaldo):", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Si hay datos reales se usan; si no, respaldo estático.
+  const students = realStudents ?? STUDENTS;
+  const metrics = useMemo(() => {
+    if (!realStudents) return METRICS;
+    const total = realStudents.length;
+    const done = realStudents.filter((s) => s.estado === "Completado").length;
+    const pend = total - done;
+    const tasa = total ? Math.round((done / total) * 100) : 0;
+    return [
+      { label: "Estudiantes", value: String(total), sub: "registrados", color: "#161D1F", accent: "#0661FC", icon: "users" },
+      { label: "Tests completados", value: String(done), sub: total ? `${Math.round((done / total) * 100)}% del total` : "—", color: "#161D1F", accent: "#0a8f8c", icon: "check" },
+      { label: "Pendientes", value: String(pend), sub: "Sin iniciar o a medias", color: "#FF395C", accent: "#FF395C", icon: "clock" },
+      { label: "Tasa de avance", value: tasa + "%", sub: "Meta de la sección: 90%", color: "#0661FC", accent: "#0661FC", icon: "trend" },
+    ] as const;
+  }, [realStudents]);
+
+  // Carreras con mayor afinidad (agregadas de los alumnos reales).
+  const careerBars = useMemo(() => {
+    if (!realStudents) return CAREER_BARS;
+    const counts = new Map<string, { sum: number; n: number }>();
+    realStudents.filter((s) => s.carrera !== "—").forEach((s) => {
+      const e = counts.get(s.carrera) ?? { sum: 0, n: 0 };
+      e.sum += s.pct; e.n += 1; counts.set(s.carrera, e);
+    });
+    const palette = ["#0661FC", "#0a8f8c", "#FF395C", "#F94C61", "#7B2CBF"];
+    const arr = [...counts.entries()]
+      .map(([name, { sum, n }]) => ({ name, pct: Math.round(sum / n) }))
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 5)
+      .map((c, i) => ({ ...c, color: palette[i % palette.length] }));
+    return arr.length ? arr : CAREER_BARS;
+  }, [realStudents]);
 
   // Geometría del anillo de distribución (offsets acumulados sin mutación).
   const ringStops = AREAS.map((a, i) => {
@@ -119,7 +186,7 @@ export default function TeacherDashboard({
 
         {/* Métricas */}
         <div style={css("display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 22px;")}>
-          {METRICS.map((m, i) => (
+          {metrics.map((m, i) => (
             <Fx key={i} base={`position: relative; overflow: hidden; background: #fff; border: 1px solid #DDE1E6; border-radius: 18px; padding: 22px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .55s ease both; animation-delay: ${i * 0.07}s; transition: transform .2s ease, box-shadow .2s ease;`} hover="transform: translateY(-5px); box-shadow: 0 22px 40px rgba(0,15,55,.1);">
               <div style={css("display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;")}>
                 <span style={css("font-size: 13px; font-weight: 800; color: #848D95;")}>{m.label}</span>
@@ -137,7 +204,7 @@ export default function TeacherDashboard({
           <div style={css("background: #fff; border: 1px solid #DDE1E6; border-radius: 18px; padding: 26px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .55s ease both; animation-delay: .1s;")}>
             <h3 style={css("margin: 0 0 22px; font-size: 18px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Carreras con mayor afinidad (sección)</h3>
             <div style={css("display: grid; gap: 18px;")}>
-              {CAREER_BARS.map((c, i) => (
+              {careerBars.map((c, i) => (
                 <div key={i} style={css("display: grid; grid-template-columns: 180px 1fr 46px; align-items: center; gap: 14px;")}>
                   <span style={css("font-size: 14px; font-weight: 700; color: #161D1F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;")}>{c.name}</span>
                   <div style={css("height: 12px; border-radius: 99px; background: #EEF1F5; overflow: hidden;")}>
@@ -181,7 +248,7 @@ export default function TeacherDashboard({
               <span key={i} style={css("font-size: 12px; font-weight: 800; color: #848D95; letter-spacing: .04em;")}>{h}</span>
             ))}
           </div>
-          {STUDENTS.map((s, i) => {
+          {students.map((s, i) => {
             const done = s.estado === "Completado";
             return (
               <Fx key={i} base={`display: grid; grid-template-columns: 1.4fr 1fr 1.2fr .7fr; align-items: center; padding: 14px 4px; border-bottom: 1px solid #F2F4F8; animation: vtFadeUp .45s ease both; animation-delay: ${0.25 + i * 0.05}s; transition: background .14s ease;`} hover="background: #F8FAFC;">

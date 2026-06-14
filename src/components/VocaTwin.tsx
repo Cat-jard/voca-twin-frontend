@@ -6,18 +6,73 @@ import CareerDetailModal from "./CareerDetailModal";
 import TeacherDashboard from "./TeacherDashboard";
 import StudentHome from "./StudentHome";
 import {
+  CAREERS,
   CELEBS,
   QUESTIONS,
+  SHORT,
   computeResult,
   particlesFor,
   type CelebTheme,
   type Result,
+  type ShownItem,
 } from "@/lib/vocaData";
+import {
+  fetchQuestions,
+  submitTest as apiSubmitTest,
+  loginUser,
+  registerUser,
+  saveUserCareers,
+  chooseUserCareer,
+  type ApiQuestion,
+  type CareerResult,
+} from "@/lib/api";
+import { enqueue as enqueueSimulations, get as getSimEntry } from "@/lib/simulationCache";
+
+// Convierte la respuesta del backend (top-3 con score) al tipo Result del frontend.
+// Busca metadatos extra (categoría, descripción) en el catálogo local de vocaData.
+function mapApiResults(results: CareerResult[]): Result {
+  if (!results.length)
+    return { topKey: "", topName: "", topCat: "", topShort: "", topDesc: "", topPct: 0, shown: [] };
+
+  const maxScore = results[0].score || 1;
+
+  const findKey = (name: string) =>
+    Object.entries(CAREERS).find(([, c]) => c.n === name)?.[0] ?? "";
+
+  const shown: ShownItem[] = results.map((r, i) => {
+    const key = findKey(r.careerName);
+    const career = CAREERS[key];
+    let pct = Math.round(50 + (r.score / maxScore) * 47) - i * 3;
+    pct = Math.max(38, Math.min(98, pct));
+    if (i === 0) pct = Math.min(98, Math.max(pct, 93));
+    return {
+      key: key || String(r.careerId),
+      name: r.careerName,
+      cat: career?.c ?? "Carrera",
+      desc: career?.d ?? "",
+      short: SHORT[key] || r.careerName,
+      pct,
+      selected: true,
+    };
+  });
+
+  const top = shown[0];
+  return {
+    topKey: top.key,
+    topName: top.name,
+    topCat: top.cat,
+    topShort: top.short,
+    topDesc: top.desc,
+    topPct: top.pct,
+    shown,
+  };
+}
 
 type Screen =
   | "landing"
   | "test"
   | "results"
+  | "studentLogin"
   | "teacherLogin"
   | "teacherDashboard"
   | "studentHome";
@@ -68,9 +123,12 @@ export default function VocaTwin() {
   const [result, setResult] = useState<Result | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [userId, setUserId] = useState<number | null>(null);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPwd, setLoginPwd] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authBusy, setAuthBusy] = useState(false);
   const [testBlock, setTestBlock] = useState(0);
   const [celebration, setCelebration] = useState(false);
   const [modalCard, setModalCard] = useState<CardModal | null>(null);
@@ -80,6 +138,19 @@ export default function VocaTwin() {
   const [teacherPwd, setTeacherPwd] = useState("");
   const [teacherError, setTeacherError] = useState("");
   const [teacherName, setTeacherName] = useState("Luna");
+
+  // Preguntas del backend; si el fetch falla, activeQuestions cae a vocaData.
+  const [apiQuestions, setApiQuestions] = useState<ApiQuestion[]>([]);
+  const activeQuestions = useMemo(
+    () =>
+      apiQuestions.length > 0
+        ? apiQuestions.map((q) => ({
+            title: q.questionText,
+            options: q.options.map((o) => ({ t: o.optionText, f: [] as string[] })),
+          }))
+        : QUESTIONS,
+    [apiQuestions]
+  );
 
   // Partículas fijas por tema (se calculan una sola vez).
   const parts = useMemo(
@@ -102,9 +173,11 @@ export default function VocaTwin() {
     try {
       const logged = localStorage.getItem("vt_isLoggedIn") === "true";
       const email = localStorage.getItem("vt_userEmail") || "";
+      const uid = localStorage.getItem("vt_userId");
       const res = localStorage.getItem("vt_result");
       setIsLoggedIn(logged);
       setUserEmail(email);
+      setUserId(uid ? Number(uid) : null);
       setResult(res ? (JSON.parse(res) as Result) : null);
       setChosenCareer(localStorage.getItem("vt_chosenCareer") || "");
     } catch { }
@@ -126,6 +199,18 @@ export default function VocaTwin() {
     return () => {
       window.removeEventListener("mousemove", mm);
     };
+  }, []);
+
+  // Carga preguntas del backend al montar; si falla, usa vocaData como fallback.
+  useEffect(() => {
+    fetchQuestions()
+      .then((qs) => {
+        console.log("[VocaTwin] ✅ Preguntas del backend:", qs.length, qs);
+        setApiQuestions(qs);
+      })
+      .catch((err) => {
+        console.warn("[VocaTwin] ⚠️ fetchQuestions falló, usando vocaData:", err);
+      });
   }, []);
 
   // Barra de progreso de scroll (solo en landing).
@@ -166,7 +251,7 @@ export default function VocaTwin() {
     setTimeout(() => {
       const sameBlock = Math.floor((qi + 1) / 5) === Math.floor(qi / 5);
       const target =
-        sameBlock && qi + 1 < QUESTIONS.length
+        sameBlock && qi + 1 < activeQuestions.length
           ? document.getElementById("vt-q-" + (qi + 1))
           : document.getElementById("vt-continue");
       if (target) {
@@ -176,21 +261,62 @@ export default function VocaTwin() {
     }, 240);
   };
 
+  // Dispara el prefetch secuencial del storytelling para las 3 cards (top-1
+  // primero, luego #2 y #3). Cacheado en memoria → "Más info" instantáneo.
+  const kickPrefetch = useCallback((res: Result) => {
+    const top3 = (res.shown || []).slice(0, 3).map((s) => s.name).filter(Boolean);
+    if (top3.length) enqueueSimulations(top3);
+  }, []);
+
   const submitTest = useCallback(() => {
-    if (Object.keys(answers).length < QUESTIONS.length) return;
+    if (Object.keys(answers).length < activeQuestions.length) return;
     setLoading(true);
-    setTimeout(() => {
-      const res = computeResult(answers);
-      try {
-        localStorage.setItem("vt_answers", JSON.stringify(answers));
-        localStorage.setItem("vt_result", JSON.stringify(res));
-      } catch { }
-      setLoading(false);
-      setResult(res);
-      setScreen("results");
-      scrollTop();
-    }, 1700);
-  }, [answers, scrollTop]);
+
+    if (apiQuestions.length > 0) {
+      // Camino real: manda IDs de BD al backend y recibe top-3 carreras.
+      const payload = Object.entries(answers).map(([qi, oi]) => ({
+        questionId: apiQuestions[Number(qi)].id,
+        optionId: apiQuestions[Number(qi)].options[oi].id,
+      }));
+      apiSubmitTest(payload)
+        .then((results) => {
+          console.log("[VocaTwin] ✅ Resultados del backend (raw):", results);
+          const res = mapApiResults(results);
+          console.log("[VocaTwin] ✅ Resultado mapeado para cards:", res);
+          try { localStorage.setItem("vt_result", JSON.stringify(res)); } catch { }
+          setLoading(false);
+          setResult(res);
+          setScreen("results");
+          kickPrefetch(res);
+          scrollTop();
+        })
+        .catch((err) => {
+          console.warn("[VocaTwin] ⚠️ submitTest falló, calculando localmente:", err);
+          // Fallback: si el backend falla, calcula localmente.
+          const res = computeResult(answers);
+          try { localStorage.setItem("vt_result", JSON.stringify(res)); } catch { }
+          setLoading(false);
+          setResult(res);
+          setScreen("results");
+          kickPrefetch(res);
+          scrollTop();
+        });
+    } else {
+      // Fallback: backend no disponible, calcula localmente.
+      setTimeout(() => {
+        const res = computeResult(answers);
+        try {
+          localStorage.setItem("vt_answers", JSON.stringify(answers));
+          localStorage.setItem("vt_result", JSON.stringify(res));
+        } catch { }
+        setLoading(false);
+        setResult(res);
+        setScreen("results");
+        kickPrefetch(res);
+        scrollTop();
+      }, 1700);
+    }
+  }, [answers, activeQuestions.length, apiQuestions, scrollTop, kickPrefetch]);
 
   const continueBlock = () => {
     const start = testBlock * BLOCK;
@@ -219,48 +345,119 @@ export default function VocaTwin() {
     setLoginPwd(e.target.value); setLoginError("");
   };
 
-  const doLogin = () => {
+  // Persiste en BD las 3 cards del alumno con el simulationId que capturó el
+  // prefetch (si la historia ya terminó). Así el dashboard no regenera imágenes.
+  const persistCards = useCallback(async (uid: number, res: Result | null) => {
+    const items = (res?.shown || []).slice(0, 3).map((s) => {
+      const entry = getSimEntry(s.name);
+      return { career: s.name, pct: s.pct, simulationId: entry?.simulationId };
+    });
+    if (!items.length) return;
+    try { await saveUserCareers(uid, items); } catch (e) { console.warn("[VocaTwin] saveUserCareers:", e); }
+  }, []);
+
+  const finishAuth = useCallback((auth: { idUsuario: number; email: string; token: string | null }) => {
+    try {
+      localStorage.setItem("vt_isLoggedIn", "true");
+      localStorage.setItem("vt_userEmail", auth.email);
+      localStorage.setItem("vt_userId", String(auth.idUsuario));
+      if (auth.token) localStorage.setItem("vt_token", auth.token);
+    } catch { }
+    setIsLoggedIn(true); setUserEmail(auth.email); setUserId(auth.idUsuario);
+    setLoginPwd(""); setLoginHint(false); setAuthBusy(false);
+    void persistCards(auth.idUsuario, result);
+    // Desde el login del landing → directo al dashboard; desde resultados se queda.
+    if (screen === "studentLogin") setScreen("studentHome");
+    scrollTop();
+  }, [persistCards, result, scrollTop, screen]);
+
+  const doLogin = async () => {
     const email = (loginEmail || "").trim();
     const pwd = loginPwd || "";
     if (!email || !/.+@.+\..+/.test(email)) { setLoginError("Ingresa un correo válido."); return; }
     if (pwd.length < 4) { setLoginError("La contraseña debe tener al menos 4 caracteres."); return; }
+    setAuthBusy(true); setLoginError("");
     try {
-      localStorage.setItem("vt_isLoggedIn", "true");
-      localStorage.setItem("vt_userEmail", email);
-    } catch { }
-    // Tras iniciar sesión se queda en la pantalla de resultados, ya desbloqueada.
-    setIsLoggedIn(true); setUserEmail(email);
-    setLoginPwd(""); setLoginHint(false); scrollTop();
+      const auth = await loginUser(email, pwd);
+      finishAuth({ idUsuario: auth.idUsuario, email: auth.email || email, token: auth.token });
+    } catch {
+      setAuthBusy(false);
+      setLoginError("Correo o contraseña incorrectos.");
+    }
+  };
+
+  const doRegister = async () => {
+    const email = (loginEmail || "").trim();
+    const pwd = loginPwd || "";
+    if (!email || !/.+@.+\..+/.test(email)) { setLoginError("Ingresa un correo válido."); return; }
+    if (pwd.length < 8) { setLoginError("La contraseña debe tener al menos 8 caracteres."); return; }
+    setAuthBusy(true); setLoginError("");
+    try {
+      const auth = await registerUser(email, pwd);
+      finishAuth({ idUsuario: auth.idUsuario, email: auth.email || email, token: auth.token });
+    } catch {
+      setAuthBusy(false);
+      setLoginError("No se pudo crear la cuenta. ¿Ya existe ese correo?");
+    }
   };
 
   const logout = () => {
     try {
       localStorage.removeItem("vt_isLoggedIn");
       localStorage.removeItem("vt_userEmail");
+      localStorage.removeItem("vt_userId");
+      localStorage.removeItem("vt_token");
       localStorage.removeItem("vt_result");
       localStorage.removeItem("vt_answers");
       localStorage.removeItem("vt_chosenCareer");
     } catch { }
-    setIsLoggedIn(false); setUserEmail(""); setResult(null); setAnswers({});
+    setIsLoggedIn(false); setUserEmail(""); setUserId(null); setResult(null); setAnswers({});
     setScreen("landing"); setTestBlock(0); setCelebration(false);
     setChosenCareer(""); scrollTop();
   };
 
   // --- Login del docente (estático / demo) ---
-  const doTeacherLogin = () => {
-    const email = (teacherEmail || "").trim();
+  const doTeacherLogin = async () => {
+    const email = (teacherEmail || "").trim().toLowerCase();
     const pwd = teacherPwd || "";
-    if (!email || !/.+@.+\..+/.test(email)) { setTeacherError("Ingresa un correo válido."); return; }
-    if (pwd.length < 4) { setTeacherError("La contraseña debe tener al menos 4 caracteres."); return; }
-    const name = email.split("@")[0];
-    setTeacherName(name.charAt(0).toUpperCase() + name.slice(1));
-    setTeacherPwd(""); setTeacherError(""); setScreen("teacherDashboard"); scrollTop();
+    if (email !== "docente@utp.edu.pe") { setTeacherError("Acceso solo con la cuenta docente@utp.edu.pe"); return; }
+    if (pwd.length < 8) { setTeacherError("La contraseña debe tener al menos 8 caracteres."); return; }
+    setTeacherError("");
+    // Obtiene un token real para leer datos del backend (datos reales del panel).
+    // Robusto: intenta login; si no existe la cuenta, la registra; si todo falla,
+    // igual entra (el panel cae a datos de respaldo).
+    try {
+      let auth;
+      try { auth = await loginUser(email, pwd); }
+      catch { auth = await registerUser(email, pwd); }
+      try {
+        localStorage.setItem("vt_token", auth.token ?? "");
+        localStorage.setItem("vt_userId", String(auth.idUsuario));
+      } catch { }
+    } catch (e) {
+      console.warn("[VocaTwin] login docente sin token (datos de respaldo):", e);
+    }
+    setTeacherName("UTP");
+    setTeacherPwd(""); setScreen("teacherDashboard"); scrollTop();
   };
 
-  // --- El alumno confirma su carrera → se queda en la página, marca elegida ---
+  // --- El alumno elige su carrera ---
+  // Sin sesión: cierra el modal y lo manda al login. Con sesión: persiste en BD.
   const chooseCareer = (career: string) => {
+    if (!isLoggedIn || userId == null) {
+      setModalCard(null);
+      promptLogin();
+      return;
+    }
     setChosenCareer(career);
     try { localStorage.setItem("vt_chosenCareer", career); } catch { }
+    const item = (result?.shown || []).find((s) => s.name === career);
+    const entry = getSimEntry(career);
+    void chooseUserCareer(userId, {
+      career,
+      pct: item?.pct ?? 0,
+      simulationId: entry?.simulationId,
+    }).catch((e) => console.warn("[VocaTwin] chooseUserCareer:", e));
     setModalCard(null);
   };
 
@@ -269,12 +466,12 @@ export default function VocaTwin() {
   };
 
   // --- Valores derivados (equivalente a renderVals) ---
-  const total = QUESTIONS.length;
+  const total = activeQuestions.length;
   const answeredCount = Object.keys(answers).length;
   const block = testBlock;
   const start = block * BLOCK;
 
-  const blockQuestions = QUESTIONS.slice(start, start + BLOCK).map((q, li) => {
+  const blockQuestions = activeQuestions.slice(start, start + BLOCK).map((q, li) => {
     const qi = start + li;
     return {
       domId: "vt-q-" + qi,
@@ -338,13 +535,14 @@ export default function VocaTwin() {
     };
   });
   const resultSelected = ranking.slice(0, 3);
-  const resultAlso = ranking.slice(3, 5);
+  if (screen === "results") console.log("[VocaTwin] 🃏 Cards renderizados:", resultSelected.map(c => ({ rank: c.rank, name: c.name, pct: c.pct, cat: c.cat })));
 
   const userName = (userEmail || "").split("@")[0] || "estudiante";
 
   const isLanding = screen === "landing";
   const isTest = screen === "test";
   const isResults = screen === "results";
+  const isStudentLogin = screen === "studentLogin";
   const isTeacherLogin = screen === "teacherLogin";
   const isTeacherDashboard = screen === "teacherDashboard";
   const isStudentHome = screen === "studentHome";
@@ -380,8 +578,10 @@ export default function VocaTwin() {
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z" /><path d="M6 12v5c0 1 4 3 6 3s6-2 6-3v-5" /></svg>
                 Docentes
               </Fx>
-              {isLoggedIn && (
+              {isLoggedIn ? (
                 <Fx as="button" onClick={goStudentHome} base="font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 11px 20px; border-radius: 11px; border: 1.5px solid #DDE1E6; background: #fff; color: #161D1F; white-space: nowrap; transition: all .18s ease;" hover="border-color: #0661FC; color: #0661FC; transform: translateY(-1px);">Mi dashboard</Fx>
+              ) : (
+                <Fx as="button" onClick={() => { setScreen("studentLogin"); setLoginError(""); setAuthMode("login"); scrollTop(); }} base="font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 11px 20px; border-radius: 11px; border: 1.5px solid #DDE1E6; background: #fff; color: #161D1F; white-space: nowrap; transition: all .18s ease;" hover="border-color: #0661FC; color: #0661FC; transform: translateY(-1px);">Iniciar sesión</Fx>
               )}
               <Fx as="button" onClick={startTest} base="position: relative; overflow: hidden; font-family: inherit; font-size: 14px; font-weight: 800; cursor: pointer; padding: 12px 22px; border-radius: 11px; border: none; background: #FF395C; color: #fff; box-shadow: 0 8px 20px rgba(255,57,92,.32); white-space: nowrap; transition: transform .16s ease, box-shadow .16s ease;" hover="transform: translateY(-2px); box-shadow: 0 12px 26px rgba(255,57,92,.42);" active="transform: translateY(0) scale(.97);">Hacer el test</Fx>
             </div>
@@ -709,44 +909,23 @@ export default function VocaTwin() {
               {resultSelected.map((a, i) => (
                 <Fx
                   key={i}
-                  onClick={() => { if (isLoggedIn) setModalCard({ name: a.name, cat: a.cat, desc: a.desc, pct: a.pct, color: a.color, badgeBg: a.badgeBg, rank: a.rank }); else promptLogin(); }}
+                  onClick={() => setModalCard({ name: a.name, cat: a.cat, desc: a.desc, pct: a.pct, color: a.color, badgeBg: a.badgeBg, rank: a.rank })}
                   base={`position: relative; background: #fff; border: 2px solid ${a.cardBorder}; border-radius: 20px; padding: 24px; box-shadow: 0 12px 30px rgba(0,15,55,.06); cursor: pointer; animation: vtPop .6s cubic-bezier(.16,1,.3,1) both; transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease;`}
                   hover="transform: translateY(-6px) scale(1.035); box-shadow: 0 28px 54px rgba(0,15,55,.17);"
                   active="transform: scale(.99);"
                   style={{ animationDelay: a.delay }}
                 >
-                  {!isLoggedIn && (
-                    <span style={css("position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; background: #F2F4F8; color: #848D95;")}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-                    </span>
-                  )}
                   <div style={css("display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;")}>
                     <span style={{ ...css("display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; font-size: 17px; font-weight: 900;"), background: a.badgeBg, color: a.color }}>{a.rank}</span>
-                    <span style={{ ...css("font-size: 30px; font-weight: 900; letter-spacing: -.03em;"), color: a.color, marginRight: isLoggedIn ? "0" : "34px" }}>{a.pct}%</span>
+                    <span style={{ ...css("font-size: 30px; font-weight: 900; letter-spacing: -.03em;"), color: a.color }}>{a.pct}%</span>
                   </div>
                   <span style={{ ...css("display: inline-flex; padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: 800; letter-spacing: .03em; margin-bottom: 10px;"), background: a.badgeBg, color: a.color }}>{a.cat}</span>
                   <h4 style={css("margin: 0 0 8px; font-size: 17px; font-weight: 900; color: #161D1F; line-height: 1.22;")}>{a.name}</h4>
                   <p style={css("margin: 0; font-size: 13px; line-height: 1.5; color: #848D95;")}>{a.desc}</p>
-                  <div style={{ ...css("display: flex; align-items: center; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #EEF1F5; font-size: 12px; font-weight: 800;"), color: isLoggedIn ? a.color : "#848D95" }}>
-                    {isLoggedIn ? "Toca para ver videos e info →" : "🔒 Inicia sesión para ver más"}
+                  <div style={{ ...css("display: flex; align-items: center; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #EEF1F5; font-size: 12px; font-weight: 800;"), color: a.color }}>
+                    Toca para ver videos e info →
                   </div>
                 </Fx>
-              ))}
-            </div>
-
-            <h4 style={css("margin: 32px 0 14px; font-size: 16px; font-weight: 800; color: #4A4F55; animation: vtFadeUp .6s ease both;")}>También compatibles contigo</h4>
-            <div style={css("display: grid; grid-template-columns: 1fr 1fr; gap: 14px;")}>
-              {resultAlso.map((a, i) => (
-                <div key={i} style={{ ...css("display: flex; align-items: center; justify-content: space-between; gap: 14px; background: #fff; border: 1px solid #DDE1E6; border-radius: 16px; padding: 16px 20px; animation: vtFadeUp .55s ease both;"), animationDelay: a.delay }}>
-                  <div style={css("display: flex; align-items: center; gap: 13px;")}>
-                    <span style={css("display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: #EEF1F5; color: #848D95; font-size: 14px; font-weight: 900;")}>{a.rank}</span>
-                    <div>
-                      <div style={css("font-size: 15px; font-weight: 800; color: #161D1F; line-height: 1.2;")}>{a.name}</div>
-                      <div style={css("font-size: 12px; font-weight: 700; color: #848D95; margin-top: 2px;")}>{a.cat}</div>
-                    </div>
-                  </div>
-                  <span style={css("font-size: 18px; font-weight: 900; color: #4A4F55;")}>{a.pct}%</span>
-                </div>
               ))}
             </div>
 
@@ -769,6 +948,18 @@ export default function VocaTwin() {
                   {loginHint && (
                     <div style={css("font-size: 13px; font-weight: 800; color: #FF395C; background: rgba(255,57,92,.08); padding: 11px 14px; border-radius: 10px; margin-bottom: 16px; animation: vtPop .35s cubic-bezier(.16,1,.3,1) both;")}>👇 Inicia sesión o regístrate para continuar</div>
                   )}
+                  {/* Toggle Login / Registro */}
+                  <div style={css("display: flex; gap: 6px; padding: 5px; background: #F2F4F8; border: 1px solid #E8EBF0; border-radius: 12px; margin-bottom: 18px;")}>
+                    {(["login", "register"] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => { setAuthMode(m); setLoginError(""); }}
+                        style={{ ...css("flex: 1; font-family: inherit; font-size: 14px; font-weight: 800; cursor: pointer; padding: 10px; border-radius: 9px; border: none; transition: all .16s ease;"), background: authMode === m ? "#fff" : "transparent", color: authMode === m ? "#000F37" : "#848D95", boxShadow: authMode === m ? "0 2px 8px rgba(0,15,55,.08)" : "none" }}
+                      >
+                        {m === "login" ? "Iniciar sesión" : "Crear cuenta"}
+                      </button>
+                    ))}
+                  </div>
                   <div style={css("display: grid; gap: 16px;")}>
                     <div>
                       <label style={css("display: block; font-size: 13px; font-weight: 800; color: #4A4F55; margin-bottom: 7px;")}>Correo</label>
@@ -776,13 +967,15 @@ export default function VocaTwin() {
                     </div>
                     <div>
                       <label style={css("display: block; font-size: 13px; font-weight: 800; color: #4A4F55; margin-bottom: 7px;")}>Contraseña</label>
-                      <Fx as="input" type="password" value={loginPwd} onChange={onLoginPwd} placeholder="••••••" base={`width: 100%; font-family: inherit; font-size: 15px; padding: 14px 16px; border-radius: 12px; border: 2px solid ${loginError ? "#E3000B" : "#E8EBF0"}; background: #F2F4F8; color: #161D1F; outline: none; transition: border-color .18s ease;`} focus="border-color: #0661FC; background: #fff;" />
+                      <Fx as="input" type="password" value={loginPwd} onChange={onLoginPwd} onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter") (authMode === "login" ? doLogin() : doRegister()); }} placeholder={authMode === "register" ? "Mínimo 8 caracteres" : "••••••"} base={`width: 100%; font-family: inherit; font-size: 15px; padding: 14px 16px; border-radius: 12px; border: 2px solid ${loginError ? "#E3000B" : "#E8EBF0"}; background: #F2F4F8; color: #161D1F; outline: none; transition: border-color .18s ease;`} focus="border-color: #0661FC; background: #fff;" />
                     </div>
                     {loginError && (
                       <div style={css("font-size: 13px; font-weight: 700; color: #E3000B; background: rgba(227,0,11,.08); padding: 10px 14px; border-radius: 10px; animation: vtFadeUp .3s ease both;")}>{loginError}</div>
                     )}
-                    <Fx as="button" onClick={doLogin} base="position: relative; overflow: hidden; font-family: inherit; font-size: 16px; font-weight: 800; cursor: pointer; padding: 15px; border-radius: 12px; border: none; background: #FF395C; color: #fff; box-shadow: 0 10px 24px rgba(255,57,92,.34); transition: transform .16s ease;" hover="transform: translateY(-2px);" active="transform: scale(.98);">Continuar y desbloquear →</Fx>
-                    <p style={css("margin: 0; text-align: center; font-size: 12px; color: #848D95;")}>Demo: cualquier correo y contraseña funcionan.</p>
+                    <Fx as="button" onClick={authMode === "login" ? doLogin : doRegister} base={`position: relative; overflow: hidden; font-family: inherit; font-size: 16px; font-weight: 800; cursor: ${authBusy ? "wait" : "pointer"}; padding: 15px; border-radius: 12px; border: none; background: #FF395C; color: #fff; box-shadow: 0 10px 24px rgba(255,57,92,.34); opacity: ${authBusy ? ".7" : "1"}; transition: transform .16s ease;`} hover="transform: translateY(-2px);" active="transform: scale(.98);">
+                      {authBusy ? "Procesando…" : authMode === "login" ? "Iniciar sesión y desbloquear →" : "Crear cuenta y desbloquear →"}
+                    </Fx>
+                    <p style={css("margin: 0; text-align: center; font-size: 12px; color: #848D95;")}>{authMode === "register" ? "Solo correo y contraseña (mínimo 8 caracteres)." : "Usa el correo con el que te registraste."}</p>
                   </div>
                 </div>
               </div>
@@ -803,6 +996,48 @@ export default function VocaTwin() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================== LOGIN ALUMNO ============================== */}
+      {isStudentLogin && (
+        <div data-screen-label="Login alumno" style={css("position: relative; min-height: 100vh; display: grid; place-items: center; padding: 24px; overflow: hidden; animation: vtFadeIn .4s ease both;")}>
+          <div style={css("position: absolute; inset: 0; background: radial-gradient(circle at 50% 0%, #2a0a4a, #000F37 60%);")} />
+          <div style={css("position: absolute; top: -80px; left: -60px; width: 320px; height: 320px; border-radius: 50%; background: radial-gradient(circle, rgba(255,57,92,.32), transparent 70%); animation: vtFloat 7s ease-in-out infinite;")} />
+          <div style={css("position: absolute; bottom: -90px; right: -50px; width: 300px; height: 300px; border-radius: 50%; background: radial-gradient(circle, rgba(6,97,252,.28), transparent 70%); animation: vtFloatB 8s ease-in-out infinite;")} />
+
+          <div style={css("position: relative; width: min(420px, 94vw); background: #fff; border-radius: 26px; padding: 40px; box-shadow: 0 40px 90px rgba(0,0,0,.4); animation: vtPop .5s cubic-bezier(.16,1,.3,1) both;")}>
+            <Fx as="button" onClick={goLanding} base="display: inline-flex; align-items: center; gap: 7px; font-family: inherit; font-size: 13px; font-weight: 700; color: #848D95; background: none; border: none; cursor: pointer; padding: 0; margin-bottom: 22px; transition: color .16s ease;" hover="color: #FF395C;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+              Volver al inicio
+            </Fx>
+
+            <div style={css("display: flex; align-items: center; gap: 12px; margin-bottom: 8px;")}>
+              <span style={css("display: grid; place-items: center; width: 46px; height: 46px; border-radius: 13px; background: #FF395C; color: #fff; box-shadow: 0 10px 24px rgba(255,57,92,.3);")}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+              </span>
+              <div>
+                <h1 style={css("margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -.02em; color: #000F37;")}>Iniciar sesión</h1>
+                <p style={css("margin: 2px 0 0; font-size: 13px; color: #848D95;")}>Entra a tu dashboard vocacional</p>
+              </div>
+            </div>
+
+            <div style={css("display: grid; gap: 15px; margin-top: 26px;")}>
+              <div>
+                <label style={css("display: block; font-size: 13px; font-weight: 800; color: #4A4F55; margin-bottom: 7px;")}>Correo</label>
+                <Fx as="input" type="email" value={loginEmail} onChange={onLoginEmail} placeholder="tucorreo@vocatwin.com" base={`width: 100%; font-family: inherit; font-size: 15px; padding: 14px 16px; border-radius: 12px; border: 2px solid ${loginError ? "#E3000B" : "#E8EBF0"}; background: #F2F4F8; color: #161D1F; outline: none; transition: border-color .18s ease;`} focus="border-color: #0661FC; background: #fff;" />
+              </div>
+              <div>
+                <label style={css("display: block; font-size: 13px; font-weight: 800; color: #4A4F55; margin-bottom: 7px;")}>Contraseña</label>
+                <Fx as="input" type="password" value={loginPwd} onChange={onLoginPwd} onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter") doLogin(); }} placeholder="••••••••" base={`width: 100%; font-family: inherit; font-size: 15px; padding: 14px 16px; border-radius: 12px; border: 2px solid ${loginError ? "#E3000B" : "#E8EBF0"}; background: #F2F4F8; color: #161D1F; outline: none; transition: border-color .18s ease;`} focus="border-color: #0661FC; background: #fff;" />
+              </div>
+              {loginError && (
+                <div style={css("font-size: 13px; font-weight: 700; color: #E3000B; background: rgba(227,0,11,.08); padding: 10px 14px; border-radius: 10px; animation: vtFadeUp .3s ease both;")}>{loginError}</div>
+              )}
+              <Fx as="button" onClick={doLogin} base={`font-family: inherit; font-size: 16px; font-weight: 800; cursor: ${authBusy ? "wait" : "pointer"}; padding: 15px; border-radius: 12px; border: none; background: #FF395C; color: #fff; box-shadow: 0 12px 28px rgba(255,57,92,.34); opacity: ${authBusy ? ".7" : "1"}; transition: transform .16s ease;`} hover="transform: translateY(-2px);" active="transform: scale(.98);">{authBusy ? "Entrando…" : "Entrar al dashboard →"}</Fx>
+              <p style={css("margin: 0; text-align: center; font-size: 13px; color: #848D95;")}>¿No tienes cuenta? <button onClick={startTest} style={css("background: none; border: none; cursor: pointer; color: #0661FC; font-weight: 800; font-family: inherit; font-size: 13px;")}>Haz el test y regístrate</button></p>
+            </div>
           </div>
         </div>
       )}
@@ -833,7 +1068,7 @@ export default function VocaTwin() {
             <div style={css("display: grid; gap: 15px; margin-top: 26px;")}>
               <div>
                 <label style={css("display: block; font-size: 13px; font-weight: 800; color: #4A4F55; margin-bottom: 7px;")}>Correo institucional</label>
-                <Fx as="input" type="email" value={teacherEmail} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setTeacherEmail(e.target.value); setTeacherError(""); }} placeholder="profesor@colegio.edu" base={`width: 100%; font-family: inherit; font-size: 15px; padding: 14px 16px; border-radius: 12px; border: 2px solid ${teacherError ? "#E3000B" : "#E8EBF0"}; background: #F2F4F8; color: #161D1F; outline: none; transition: border-color .18s ease;`} focus="border-color: #0661FC; background: #fff;" />
+                <Fx as="input" type="email" value={teacherEmail} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setTeacherEmail(e.target.value); setTeacherError(""); }} placeholder="docente@utp.edu.pe" base={`width: 100%; font-family: inherit; font-size: 15px; padding: 14px 16px; border-radius: 12px; border: 2px solid ${teacherError ? "#E3000B" : "#E8EBF0"}; background: #F2F4F8; color: #161D1F; outline: none; transition: border-color .18s ease;`} focus="border-color: #0661FC; background: #fff;" />
               </div>
               <div>
                 <label style={css("display: block; font-size: 13px; font-weight: 800; color: #4A4F55; margin-bottom: 7px;")}>Contraseña</label>
@@ -843,7 +1078,7 @@ export default function VocaTwin() {
                 <div style={css("font-size: 13px; font-weight: 700; color: #E3000B; background: rgba(227,0,11,.08); padding: 10px 14px; border-radius: 10px; animation: vtFadeUp .3s ease both;")}>{teacherError}</div>
               )}
               <Fx as="button" onClick={doTeacherLogin} base="font-family: inherit; font-size: 16px; font-weight: 800; cursor: pointer; padding: 15px; border-radius: 12px; border: none; background: #000F37; color: #fff; box-shadow: 0 12px 28px rgba(0,15,55,.3); transition: transform .16s ease;" hover="transform: translateY(-2px);" active="transform: scale(.98);">Ingresar al panel docente →</Fx>
-              <p style={css("margin: 0; text-align: center; font-size: 12px; color: #848D95;")}>Demo: cualquier correo y contraseña funcionan.</p>
+              <p style={css("margin: 0; text-align: center; font-size: 12px; color: #848D95;")}>Acceso con <b>docente@utp.edu.pe</b> (contraseña mínima 8 caracteres)</p>
             </div>
           </div>
         </div>
@@ -858,6 +1093,7 @@ export default function VocaTwin() {
       {isStudentHome && (
         <StudentHome
           userName={userName}
+          userId={userId}
           chosenCareer={chosenCareer}
           result={result}
           onLogout={logout}
@@ -867,7 +1103,7 @@ export default function VocaTwin() {
 
       {/* ============================== VENTANA DE DETALLE (tarjeta) ============================== */}
       {modalCard && (
-        <CareerDetailModal card={modalCard} onClose={() => setModalCard(null)} onChoose={chooseCareer} />
+        <CareerDetailModal card={modalCard} onClose={() => setModalCard(null)} onChoose={chooseCareer} isLoggedIn={isLoggedIn} />
       )}
     </div>
   );
