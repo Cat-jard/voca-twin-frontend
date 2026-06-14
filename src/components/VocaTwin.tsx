@@ -18,11 +18,9 @@ type Screen =
   | "landing"
   | "test"
   | "results"
-  | "dashboard"
   | "teacherLogin"
   | "teacherDashboard"
   | "studentHome";
-type DashView = "barras" | "anillo" | "tarjetas";
 
 // Datos visuales de la tarjeta abierta en la ventana de detalle.
 interface CardModal {
@@ -73,11 +71,11 @@ export default function VocaTwin() {
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPwd, setLoginPwd] = useState("");
   const [loginError, setLoginError] = useState("");
-  const [dashView, setDashView] = useState<DashView>("barras");
   const [testBlock, setTestBlock] = useState(0);
   const [celebration, setCelebration] = useState(false);
   const [modalCard, setModalCard] = useState<CardModal | null>(null);
   const [chosenCareer, setChosenCareer] = useState("");
+  const [loginHint, setLoginHint] = useState(false);
   const [teacherEmail, setTeacherEmail] = useState("");
   const [teacherPwd, setTeacherPwd] = useState("");
   const [teacherError, setTeacherError] = useState("");
@@ -148,7 +146,20 @@ export default function VocaTwin() {
     setScreen("test"); setAnswers({}); setTestBlock(0); setCelebration(false); scrollTop();
   };
   const goLanding = () => { setScreen("landing"); scrollTop(); };
-  const goDashboard = () => { setScreen("dashboard"); scrollTop(); };
+  const goStudentHome = () => { setScreen("studentHome"); scrollTop(); };
+
+  // Sin sesión: al intentar abrir una card / video, pedir registro o login.
+  const promptLogin = () => {
+    setLoginHint(true);
+    setTimeout(() => {
+      const el = document.getElementById("vt-login");
+      if (el) {
+        const y = el.getBoundingClientRect().top + (window.scrollY || 0) - 90;
+        window.scrollTo({ top: y, behavior: "smooth" });
+      }
+    }, 30);
+    setTimeout(() => setLoginHint(false), 2400);
+  };
 
   const selectAnswer = (qi: number, oi: number) => {
     setAnswers((prev) => ({ ...prev, [qi]: oi }));
@@ -217,8 +228,9 @@ export default function VocaTwin() {
       localStorage.setItem("vt_isLoggedIn", "true");
       localStorage.setItem("vt_userEmail", email);
     } catch {}
-    setIsLoggedIn(true); setUserEmail(email); setScreen("dashboard");
-    setLoginPwd(""); setDashView("barras"); scrollTop();
+    // Tras iniciar sesión se queda en la pantalla de resultados, ya desbloqueada.
+    setIsLoggedIn(true); setUserEmail(email);
+    setLoginPwd(""); setLoginHint(false); scrollTop();
   };
 
   const logout = () => {
@@ -230,7 +242,7 @@ export default function VocaTwin() {
       localStorage.removeItem("vt_chosenCareer");
     } catch {}
     setIsLoggedIn(false); setUserEmail(""); setResult(null); setAnswers({});
-    setScreen("landing"); setTestBlock(0); setCelebration(false); setDashView("barras");
+    setScreen("landing"); setTestBlock(0); setCelebration(false);
     setChosenCareer(""); scrollTop();
   };
 
@@ -245,12 +257,11 @@ export default function VocaTwin() {
     setTeacherPwd(""); setTeacherError(""); setScreen("teacherDashboard"); scrollTop();
   };
 
-  // --- El alumno confirma su carrera → abre su panel personal ---
+  // --- El alumno confirma su carrera → se queda en la página, marca elegida ---
   const chooseCareer = (career: string) => {
     setChosenCareer(career);
     try { localStorage.setItem("vt_chosenCareer", career); } catch {}
     setModalCard(null);
-    setScreen("studentHome"); scrollTop();
   };
 
   const retake = () => {
@@ -334,19 +345,11 @@ export default function VocaTwin() {
   const isLanding = screen === "landing";
   const isTest = screen === "test";
   const isResults = screen === "results";
-  const isDashboard = screen === "dashboard";
   const isTeacherLogin = screen === "teacherLogin";
   const isTeacherDashboard = screen === "teacherDashboard";
   const isStudentHome = screen === "studentHome";
   const needsLogin = isResults && !isLoggedIn;
   const alreadyLogged = isResults && isLoggedIn;
-
-  const tabStyle = (name: DashView) => ({
-    bg: dashView === name ? "#fff" : "transparent",
-    color: dashView === name ? "#000F37" : "#4A4F55",
-    shadow: dashView === name ? "0 2px 8px rgba(0,15,55,.12)" : "none",
-  });
-  const tb = tabStyle("barras"), ta = tabStyle("anillo"), tt = tabStyle("tarjetas");
 
   return (
     <div
@@ -378,7 +381,7 @@ export default function VocaTwin() {
                 Docentes
               </Fx>
               {isLoggedIn && (
-                <Fx as="button" onClick={goDashboard} base="font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 11px 20px; border-radius: 11px; border: 1.5px solid #DDE1E6; background: #fff; color: #161D1F; white-space: nowrap; transition: all .18s ease;" hover="border-color: #0661FC; color: #0661FC; transform: translateY(-1px);">Mi dashboard</Fx>
+                <Fx as="button" onClick={goStudentHome} base="font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 11px 20px; border-radius: 11px; border: 1.5px solid #DDE1E6; background: #fff; color: #161D1F; white-space: nowrap; transition: all .18s ease;" hover="border-color: #0661FC; color: #0661FC; transform: translateY(-1px);">Mi dashboard</Fx>
               )}
               <Fx as="button" onClick={startTest} base="position: relative; overflow: hidden; font-family: inherit; font-size: 14px; font-weight: 800; cursor: pointer; padding: 12px 22px; border-radius: 11px; border: none; background: #FF395C; color: #fff; box-shadow: 0 8px 20px rgba(255,57,92,.32); white-space: nowrap; transition: transform .16s ease, box-shadow .16s ease;" hover="transform: translateY(-2px); box-shadow: 0 12px 26px rgba(255,57,92,.42);" active="transform: translateY(0) scale(.97);">Hacer el test</Fx>
             </div>
@@ -706,20 +709,27 @@ export default function VocaTwin() {
               {resultSelected.map((a, i) => (
                 <Fx
                   key={i}
-                  onClick={() => setModalCard({ name: a.name, cat: a.cat, desc: a.desc, pct: a.pct, color: a.color, badgeBg: a.badgeBg, rank: a.rank })}
+                  onClick={() => { if (isLoggedIn) setModalCard({ name: a.name, cat: a.cat, desc: a.desc, pct: a.pct, color: a.color, badgeBg: a.badgeBg, rank: a.rank }); else promptLogin(); }}
                   base={`position: relative; background: #fff; border: 2px solid ${a.cardBorder}; border-radius: 20px; padding: 24px; box-shadow: 0 12px 30px rgba(0,15,55,.06); cursor: pointer; animation: vtPop .6s cubic-bezier(.16,1,.3,1) both; transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease;`}
                   hover="transform: translateY(-6px) scale(1.035); box-shadow: 0 28px 54px rgba(0,15,55,.17);"
                   active="transform: scale(.99);"
                   style={{ animationDelay: a.delay }}
                 >
+                  {!isLoggedIn && (
+                    <span style={css("position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; background: #F2F4F8; color: #848D95;")}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                    </span>
+                  )}
                   <div style={css("display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;")}>
                     <span style={{ ...css("display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; font-size: 17px; font-weight: 900;"), background: a.badgeBg, color: a.color }}>{a.rank}</span>
-                    <span style={{ ...css("font-size: 30px; font-weight: 900; letter-spacing: -.03em;"), color: a.color }}>{a.pct}%</span>
+                    <span style={{ ...css("font-size: 30px; font-weight: 900; letter-spacing: -.03em;"), color: a.color, marginRight: isLoggedIn ? "0" : "34px" }}>{a.pct}%</span>
                   </div>
                   <span style={{ ...css("display: inline-flex; padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: 800; letter-spacing: .03em; margin-bottom: 10px;"), background: a.badgeBg, color: a.color }}>{a.cat}</span>
                   <h4 style={css("margin: 0 0 8px; font-size: 17px; font-weight: 900; color: #161D1F; line-height: 1.22;")}>{a.name}</h4>
                   <p style={css("margin: 0; font-size: 13px; line-height: 1.5; color: #848D95;")}>{a.desc}</p>
-                  <div style={{ ...css("display: flex; align-items: center; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #EEF1F5; font-size: 12px; font-weight: 800;"), color: a.color }}>Toca para ver detalle →</div>
+                  <div style={{ ...css("display: flex; align-items: center; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #EEF1F5; font-size: 12px; font-weight: 800;"), color: isLoggedIn ? a.color : "#848D95" }}>
+                    {isLoggedIn ? "Toca para ver videos e info →" : "🔒 Inicia sesión para ver más"}
+                  </div>
                 </Fx>
               ))}
             </div>
@@ -741,17 +751,24 @@ export default function VocaTwin() {
             </div>
 
             {needsLogin && (
-              <div style={css("display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 30px; background: #fff; border: 1px solid #DDE1E6; border-radius: 24px; overflow: hidden; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .6s ease both; animation-delay: .15s;")}>
+              <div id="vt-login" style={{ ...css("display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 30px; background: #fff; border-radius: 24px; overflow: hidden; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .6s ease both; animation-delay: .15s; transition: box-shadow .25s ease, border-color .25s ease;"), border: loginHint ? "2px solid #FF395C" : "1px solid #DDE1E6", boxShadow: loginHint ? "0 0 0 6px rgba(255,57,92,.16)" : "0 2px 0 rgba(0,15,55,.03)" }}>
                 <div style={css("padding: 40px; background: #F2F4F8; border-right: 1px solid #DDE1E6;")}>
-                  <h3 style={css("margin: 0 0 12px; font-size: 26px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Guarda tu resultado</h3>
-                  <p style={css("margin: 0 0 22px; font-size: 15px; line-height: 1.6; color: #4A4F55;")}>Inicia sesión para acceder a tu dashboard con el desglose completo de afinidades.</p>
+                  <span style={css("display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px; border-radius: 99px; background: rgba(255,57,92,.1); color: #FF395C; font-size: 12px; font-weight: 800; letter-spacing: .03em; margin-bottom: 16px;")}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+                    CONTENIDO BLOQUEADO
+                  </span>
+                  <h3 style={css("margin: 0 0 12px; font-size: 26px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Regístrate o inicia sesión</h3>
+                  <p style={css("margin: 0 0 22px; font-size: 15px; line-height: 1.6; color: #4A4F55;")}>Crea tu cuenta para desbloquear los videos, la info de cada carrera y poder elegir la tuya.</p>
                   <div style={css("display: grid; gap: 12px;")}>
-                    <div style={css("display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: #161D1F;")}><span style={css("color: #3DDCDA;")}>✓</span> Tus 3 carreras seleccionadas guardadas</div>
-                    <div style={css("display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: #161D1F;")}><span style={css("color: #3DDCDA;")}>✓</span> Comparativa visual de tus 5 mejores</div>
-                    <div style={css("display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: #161D1F;")}><span style={css("color: #3DDCDA;")}>✓</span> Acceso desde cualquier lugar</div>
+                    <div style={css("display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: #161D1F;")}><span style={css("color: #3DDCDA;")}>✓</span> Ver videos e información de cada carrera</div>
+                    <div style={css("display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: #161D1F;")}><span style={css("color: #3DDCDA;")}>✓</span> Elegir tu carrera y guardar tu resultado</div>
+                    <div style={css("display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: #161D1F;")}><span style={css("color: #3DDCDA;")}>✓</span> Tu dashboard personal con seguimiento</div>
                   </div>
                 </div>
                 <div style={css("padding: 40px;")}>
+                  {loginHint && (
+                    <div style={css("font-size: 13px; font-weight: 800; color: #FF395C; background: rgba(255,57,92,.08); padding: 11px 14px; border-radius: 10px; margin-bottom: 16px; animation: vtPop .35s cubic-bezier(.16,1,.3,1) both;")}>👇 Inicia sesión o regístrate para continuar</div>
+                  )}
                   <div style={css("display: grid; gap: 16px;")}>
                     <div>
                       <label style={css("display: block; font-size: 13px; font-weight: 800; color: #4A4F55; margin-bottom: 7px;")}>Correo</label>
@@ -764,138 +781,28 @@ export default function VocaTwin() {
                     {loginError && (
                       <div style={css("font-size: 13px; font-weight: 700; color: #E3000B; background: rgba(227,0,11,.08); padding: 10px 14px; border-radius: 10px; animation: vtFadeUp .3s ease both;")}>{loginError}</div>
                     )}
-                    <Fx as="button" onClick={doLogin} base="position: relative; overflow: hidden; font-family: inherit; font-size: 16px; font-weight: 800; cursor: pointer; padding: 15px; border-radius: 12px; border: none; background: #FF395C; color: #fff; box-shadow: 0 10px 24px rgba(255,57,92,.34); transition: transform .16s ease;" hover="transform: translateY(-2px);" active="transform: scale(.98);">Iniciar sesión y ver dashboard →</Fx>
+                    <Fx as="button" onClick={doLogin} base="position: relative; overflow: hidden; font-family: inherit; font-size: 16px; font-weight: 800; cursor: pointer; padding: 15px; border-radius: 12px; border: none; background: #FF395C; color: #fff; box-shadow: 0 10px 24px rgba(255,57,92,.34); transition: transform .16s ease;" hover="transform: translateY(-2px);" active="transform: scale(.98);">Continuar y desbloquear →</Fx>
                     <p style={css("margin: 0; text-align: center; font-size: 12px; color: #848D95;")}>Demo: cualquier correo y contraseña funcionan.</p>
                   </div>
                 </div>
               </div>
             )}
             {alreadyLogged && (
-              <div style={css("text-align: center; margin-top: 30px; animation: vtFadeUp .6s ease both;")}>
-                <Fx as="button" onClick={goDashboard} base="font-family: inherit; font-size: 17px; font-weight: 800; cursor: pointer; padding: 17px 36px; border-radius: 14px; border: none; background: #0661FC; color: #fff; box-shadow: 0 12px 28px rgba(6,97,252,.34); transition: transform .18s cubic-bezier(.34,1.56,.64,1);" hover="transform: translateY(-3px);" active="transform: scale(.98);">Ir a mi dashboard →</Fx>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ============================== DASHBOARD ============================== */}
-      {isDashboard && (
-        <div data-screen-label="Dashboard" style={css("animation: vtFadeIn .45s ease both; min-height: 100vh;")}>
-          <nav style={css("position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; padding: 18px 48px; backdrop-filter: blur(14px); background: rgba(242,244,248,.82); border-bottom: 1px solid rgba(0,15,55,.06);")}>
-            <div style={css("display: flex; align-items: center; gap: 11px; font-weight: 900; font-size: 21px; letter-spacing: -.02em;")}>
-              <span style={css("display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: #000F37; color: #fff; font-size: 15px; transform: rotate(-6deg);")}>V</span>
-              <span>Voca<span style={css("color: #FF395C;")}>Twin</span></span>
-            </div>
-            <Fx as="button" onClick={logout} base="display: inline-flex; align-items: center; gap: 8px; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 11px 18px; border-radius: 11px; border: 1.5px solid #DDE1E6; background: #fff; color: #4A4F55; transition: all .18s ease;" hover="border-color: #E3000B; color: #E3000B;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
-              Cerrar sesión
-            </Fx>
-          </nav>
-
-          <div style={css("max-width: 1180px; margin: 0 auto; padding: 44px 48px 80px;")}>
-            <div style={css("margin-bottom: 36px; animation: vtFadeUp .6s ease both;")}>
-              <span style={css("font-size: 14px; font-weight: 800; color: #0661FC; letter-spacing: .04em;")}>TU PANEL VOCACIONAL</span>
-              <h1 style={css("margin: 10px 0 0; font-size: clamp(30px, 4vw, 44px); font-weight: 900; letter-spacing: -.03em; color: #000F37;")}>Bienvenido, <span style={css("color: #FF395C;")}>{userName}</span></h1>
-            </div>
-
-            <div style={css("display: grid; grid-template-columns: 1.4fr 1fr; gap: 22px; margin-bottom: 22px;")}>
-              <div style={css("background: linear-gradient(135deg, #0661FC, #0a4bd0); border-radius: 24px; padding: 36px; color: #fff; position: relative; overflow: hidden; box-shadow: 0 24px 50px rgba(6,97,252,.28); animation: vtFadeUp .6s ease both; animation-delay: .05s;")}>
-                <div style={css("position: absolute; top: -50px; right: -30px; width: 220px; height: 220px; border-radius: 50%; background: rgba(61,220,218,.28); filter: blur(8px);")} />
-                <div style={css("position: relative; display: flex; align-items: center; gap: 10px; margin-bottom: 14px;")}>
-                  <span style={css("font-size: 13px; font-weight: 800; color: rgba(255,255,255,.78); letter-spacing: .06em;")}>CARRERA RECOMENDADA</span>
-                  <span style={css("display: inline-flex; padding: 4px 11px; border-radius: 99px; background: rgba(255,255,255,.16); font-size: 11px; font-weight: 800;")}>{r.topCat}</span>
-                </div>
-                <h2 style={css("position: relative; margin: 0 0 16px; font-size: clamp(26px, 3vw, 36px); font-weight: 900; letter-spacing: -.025em; line-height: 1.06;")}>{r.topName}</h2>
-                <p style={css("position: relative; margin: 0; max-width: 420px; font-size: 15px; line-height: 1.6; color: rgba(255,255,255,.82);")}>{r.topDesc}</p>
-              </div>
-              <div style={css("background: #fff; border: 1px solid #DDE1E6; border-radius: 24px; padding: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .6s ease both; animation-delay: .12s;")}>
-                <div style={{ ...css("display: grid; place-items: center; width: 150px; height: 150px; border-radius: 50%;"), background: `conic-gradient(#3DDCDA ${topPctDeg}, #E8EBF0 0)` }}>
-                  <div style={css("display: grid; place-items: center; width: 116px; height: 116px; border-radius: 50%; background: #fff;")}>
-                    <div style={css("text-align: center;")}><div style={css("font-size: 36px; font-weight: 900; color: #000F37; letter-spacing: -.03em;")}>{r.topPct}%</div><div style={css("font-size: 11px; color: #848D95; font-weight: 700;")}>AFINIDAD</div></div>
+              <div style={css("position: relative; overflow: hidden; margin-top: 30px; background: linear-gradient(135deg, #0a8f8c, #066b69); border-radius: 24px; padding: 32px; color: #fff; box-shadow: 0 20px 44px rgba(10,143,140,.28); animation: vtFadeUp .6s ease both;")}>
+                <div style={css("position: absolute; top: -50px; right: -30px; width: 200px; height: 200px; border-radius: 50%; background: rgba(61,220,218,.3); filter: blur(8px);")} />
+                <div style={css("position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;")}>
+                  <div style={css("min-width: 0;")}>
+                    <span style={css("display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 99px; background: rgba(255,255,255,.18); font-size: 12px; font-weight: 800; margin-bottom: 12px;")}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                      SESIÓN INICIADA
+                    </span>
+                    <h3 style={css("margin: 0 0 6px; font-size: 24px; font-weight: 900; letter-spacing: -.02em;")}>¡Listo, {userName}! Ya está desbloqueado.</h3>
+                    <p style={css("margin: 0; font-size: 14px; line-height: 1.55; color: rgba(255,255,255,.82); max-width: 460px;")}>{chosenCareer ? `Tu carrera elegida es ${chosenCareer}. ` : "Toca cualquiera de tus 3 carreras para ver sus videos e info, y elige la tuya. "}Todo queda guardado en tu dashboard.</p>
                   </div>
-                </div>
-                <span style={css("margin-top: 16px; font-size: 14px; font-weight: 700; color: #4A4F55; text-align: center;")}>con {r.topShort}</span>
-              </div>
-            </div>
-
-            <div style={css("display: flex; align-items: center; justify-content: space-between; margin: 34px 0 20px; animation: vtFadeUp .6s ease both; animation-delay: .18s;")}>
-              <div>
-                <h3 style={css("margin: 0; font-size: 22px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Tus 5 mejores coincidencias</h3>
-                <span style={css("font-size: 13px; font-weight: 700; color: #848D95;")}>3 seleccionadas · 2 compatibles</span>
-              </div>
-              <div style={css("display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: #E8EBF0;")}>
-                <button onClick={() => setDashView("barras")} style={{ ...css("font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; padding: 9px 16px; border-radius: 9px; border: none; transition: all .2s ease;"), background: tb.bg, color: tb.color, boxShadow: tb.shadow }}>Barras</button>
-                <button onClick={() => setDashView("anillo")} style={{ ...css("font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; padding: 9px 16px; border-radius: 9px; border: none; transition: all .2s ease;"), background: ta.bg, color: ta.color, boxShadow: ta.shadow }}>Anillo</button>
-                <button onClick={() => setDashView("tarjetas")} style={{ ...css("font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; padding: 9px 16px; border-radius: 9px; border: none; transition: all .2s ease;"), background: tt.bg, color: tt.color, boxShadow: tt.shadow }}>Tarjetas</button>
-              </div>
-            </div>
-
-            {dashView === "barras" && (
-              <div style={css("background: #fff; border: 1px solid #DDE1E6; border-radius: 24px; padding: 32px; box-shadow: 0 2px 0 rgba(0,15,55,.03);")}>
-                <div style={css("display: grid; gap: 22px;")}>
-                  {ranking.map((a, i) => (
-                    <div key={i} style={{ ...css("animation: vtFadeUp .5s ease both;"), opacity: a.rowOpacity, animationDelay: a.delay }}>
-                      <div style={css("display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;")}>
-                        <div style={css("display: flex; align-items: center; gap: 11px;")}>
-                          <span style={{ ...css("display: grid; place-items: center; min-width: 30px; height: 30px; border-radius: 9px; font-size: 13px; font-weight: 900;"), background: a.badgeBg, color: a.badgeColor }}>{a.rank}</span>
-                          <span style={css("font-size: 15px; font-weight: 700; color: #161D1F;")}>{a.name}</span>
-                          <span style={{ ...css("display: inline-flex; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 800;"), background: a.selTagBg, color: a.selTagColor }}>{a.selTag}</span>
-                        </div>
-                        <span style={{ ...css("font-size: 15px; font-weight: 900;"), color: a.color }}>{a.pct}%</span>
-                      </div>
-                      <div style={css("height: 12px; border-radius: 99px; background: #EEF1F5; overflow: hidden;")}>
-                        <div style={{ ...css("height: 100%; border-radius: 99px; transform-origin: left; animation: vtGrowX .9s cubic-bezier(.16,1,.3,1) both;"), background: a.barBg, width: a.barW, animationDelay: a.delay }} />
-                      </div>
-                    </div>
-                  ))}
+                  <Fx as="button" onClick={goStudentHome} base="font-family: inherit; font-size: 15px; font-weight: 800; cursor: pointer; padding: 15px 26px; border-radius: 13px; border: none; background: #fff; color: #0a8f8c; box-shadow: 0 12px 28px rgba(0,0,0,.18); white-space: nowrap; transition: transform .18s cubic-bezier(.34,1.56,.64,1);" hover="transform: translateY(-3px);" active="transform: scale(.98);">Abrir mi dashboard →</Fx>
                 </div>
               </div>
             )}
-
-            {dashView === "anillo" && (
-              <div style={css("background: #fff; border: 1px solid #DDE1E6; border-radius: 24px; padding: 38px 28px; box-shadow: 0 2px 0 rgba(0,15,55,.03); display: grid; grid-template-columns: repeat(5, 1fr); gap: 18px;")}>
-                {ranking.map((a, i) => (
-                  <div key={i} style={{ ...css("display: flex; flex-direction: column; align-items: center; text-align: center; animation: vtPop .55s cubic-bezier(.16,1,.3,1) both;"), opacity: a.rowOpacity, animationDelay: a.delay }}>
-                    <div style={{ ...css("display: grid; place-items: center; width: 104px; height: 104px; border-radius: 50%;"), background: `conic-gradient(${a.color} ${a.deg}, #EEF1F5 0)` }}>
-                      <div style={css("display: grid; place-items: center; width: 80px; height: 80px; border-radius: 50%; background: #fff;")}>
-                        <span style={css("font-size: 21px; font-weight: 900; color: #000F37;")}>{a.pct}%</span>
-                      </div>
-                    </div>
-                    <span style={css("margin-top: 12px; font-size: 12px; font-weight: 800; color: #161D1F; line-height: 1.25;")}>{a.name}</span>
-                    <span style={{ ...css("margin-top: 6px; display: inline-flex; padding: 3px 9px; border-radius: 99px; font-size: 10px; font-weight: 800;"), background: a.selTagBg, color: a.selTagColor }}>{a.selTag}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {dashView === "tarjetas" && (
-              <div style={css("display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;")}>
-                {ranking.map((a, i) => (
-                  <Fx
-                    key={i}
-                    onClick={a.selected ? () => setModalCard({ name: a.name, cat: a.cat, desc: a.desc, pct: a.pct, color: a.color, badgeBg: a.badgeBg, rank: a.rank }) : undefined}
-                    base={`background: #fff; border: 1px solid #DDE1E6; border-top: 4px solid ${a.color}; border-radius: 18px; padding: 22px; box-shadow: 0 2px 0 rgba(0,15,55,.03); opacity: ${a.rowOpacity}; cursor: ${a.selected ? "pointer" : "default"}; animation: vtFadeUp .55s ease both; animation-delay: ${a.delay}; transition: transform .2s ease, box-shadow .2s ease;`}
-                    hover={a.selected ? "transform: translateY(-6px) scale(1.02); box-shadow: 0 24px 44px rgba(0,15,55,.13);" : "transform: translateY(-5px); box-shadow: 0 20px 38px rgba(0,15,55,.1);"}
-                  >
-                    <div style={css("display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;")}>
-                      <span style={{ ...css("display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; font-size: 15px; font-weight: 900;"), background: a.badgeBg, color: a.badgeColor }}>{a.rank}</span>
-                      <span style={{ ...css("font-size: 24px; font-weight: 900; letter-spacing: -.02em;"), color: a.color }}>{a.pct}%</span>
-                    </div>
-                    <span style={{ ...css("display: inline-flex; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 800; margin-bottom: 10px;"), background: a.selTagBg, color: a.selTagColor }}>{a.selTag}</span>
-                    <h4 style={css("margin: 0 0 6px; font-size: 16px; font-weight: 800; color: #161D1F; line-height: 1.25;")}>{a.name}</h4>
-                    <p style={css("margin: 0; font-size: 13px; line-height: 1.5; color: #848D95;")}>{a.desc}</p>
-                    {a.selected && (
-                      <div style={{ ...css("display: flex; align-items: center; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #EEF1F5; font-size: 12px; font-weight: 800;"), color: a.color }}>Toca para ver detalle →</div>
-                    )}
-                  </Fx>
-                ))}
-              </div>
-            )}
-
-            <div style={css("text-align: center; margin-top: 36px; animation: vtFadeUp .6s ease both;")}>
-              <Fx as="button" onClick={retake} base="font-family: inherit; font-size: 15px; font-weight: 800; cursor: pointer; padding: 14px 26px; border-radius: 12px; border: 1.5px solid #DDE1E6; background: #fff; color: #4A4F55; transition: all .18s ease;" hover="border-color: #FF395C; color: #FF395C; transform: translateY(-2px);">↻ Repetir el test</Fx>
-            </div>
           </div>
         </div>
       )}
@@ -955,7 +862,6 @@ export default function VocaTwin() {
           result={result}
           onLogout={logout}
           onRetake={retake}
-          onGoGeneral={goDashboard}
         />
       )}
 

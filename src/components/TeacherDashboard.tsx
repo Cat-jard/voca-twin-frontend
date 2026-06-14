@@ -55,7 +55,6 @@ export default function TeacherDashboard({
   onLogout: () => void;
 }) {
   const [section, setSection] = useState(0);
-  const [secOpen, setSecOpen] = useState(false);
 
   // Geometría del anillo de distribución (offsets acumulados sin mutación).
   const ringStops = AREAS.map((a, i) => {
@@ -91,24 +90,30 @@ export default function TeacherDashboard({
 
       <div style={css("max-width: 1180px; margin: 0 auto; padding: 36px 40px 80px;")}>
         {/* Encabezado */}
-        <div style={css("display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 30px; animation: vtFadeUp .5s ease both;")}>
+        <div style={css("display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 26px; animation: vtFadeUp .5s ease both;")}>
           <div>
             <h1 style={css("margin: 0 0 6px; font-size: clamp(26px, 3.4vw, 36px); font-weight: 900; letter-spacing: -.03em; color: #000F37;")}>Hola, profesor {teacherName}</h1>
             <p style={css("margin: 0; font-size: 15px; color: #4A4F55;")}>Resumen de resultados vocacionales de tus secciones</p>
           </div>
-          {/* Selector de sección */}
-          <div style={css("position: relative;")}>
-            <Fx as="button" onClick={() => setSecOpen((o) => !o)} base="display: flex; align-items: center; gap: 10px; font-family: inherit; font-size: 14px; font-weight: 800; cursor: pointer; padding: 11px 16px; border-radius: 12px; border: 1.5px solid #DDE1E6; background: #fff; color: #161D1F; transition: all .16s ease;" hover="border-color: #0661FC; color: #0661FC;">
-              {SECTIONS[section]}
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
-            </Fx>
-            {secOpen && (
-              <div style={css("position: absolute; top: calc(100% + 8px); right: 0; z-index: 20; min-width: 220px; background: #fff; border: 1px solid #DDE1E6; border-radius: 14px; box-shadow: 0 18px 40px rgba(0,15,55,.16); overflow: hidden; animation: vtFadeUp .25s ease both;")}>
-                {SECTIONS.map((s, i) => (
-                  <button key={i} onClick={() => { setSection(i); setSecOpen(false); }} style={{ ...css("display: block; width: 100%; text-align: left; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 12px 16px; border: none; background: #fff; color: #161D1F;"), background: i === section ? "#F2F4F8" : "#fff" }}>{s}</button>
-                ))}
-              </div>
-            )}
+          {/* Selector de sección segmentado (sin solapamientos) */}
+          <div style={css("display: flex; gap: 4px; padding: 4px; border-radius: 13px; background: #E8EBF0;")}>
+            {SECTIONS.map((s, i) => {
+              const active = i === section;
+              return (
+                <button
+                  key={i}
+                  onClick={() => setSection(i)}
+                  style={{
+                    ...css("font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; padding: 9px 15px; border-radius: 10px; border: none; white-space: nowrap; transition: all .2s ease;"),
+                    background: active ? "#fff" : "transparent",
+                    color: active ? "#000F37" : "#4A4F55",
+                    boxShadow: active ? "0 2px 8px rgba(0,15,55,.12)" : "none",
+                  }}
+                >
+                  {s}
+                </button>
+              );
+            })}
           </div>
         </div>
 

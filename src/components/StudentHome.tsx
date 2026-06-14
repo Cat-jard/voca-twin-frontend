@@ -15,6 +15,13 @@ const TEST_HISTORY = [
   { fecha: "15 may 2026", titulo: "Test exploratorio rápido", top: "Administración", pct: 61, preguntas: 10 },
 ];
 
+const NEXT_STEPS = [
+  { label: "Explora universidades que la dictan", done: true },
+  { label: "Revisa la malla curricular", done: false },
+  { label: "Conoce el campo laboral y sueldos", done: false },
+  { label: "Agenda una orientación con un tutor", done: false },
+];
+
 function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const c = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   switch (name) {
@@ -25,7 +32,14 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
     case "user": return <svg {...c}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>;
     case "gear": return <svg {...c}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>;
     case "logout": return <svg {...c}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>;
-    case "play": return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><path d="M7 5v14l12-7z" /></svg>;
+    case "target": return <svg {...c}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.4" /></svg>;
+    case "layers": return <svg {...c}><path d="M12 2L2 7l10 5 10-5z" /><path d="M2 17l10 5 10-5M2 12l10 5 10-5" /></svg>;
+    case "spark": return <svg {...c}><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21l2.3-7.4-6-4.6h7.6z" /></svg>;
+    case "check": return <svg {...c}><path d="M20 6L9 17l-5-5" /></svg>;
+    case "arrow": return <svg {...c}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
+    case "bell": return <svg {...c}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" /></svg>;
+    case "shield": return <svg {...c}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>;
+    case "moon": return <svg {...c}><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" /></svg>;
     default: return null;
   }
 }
@@ -36,14 +50,12 @@ export default function StudentHome({
   result,
   onLogout,
   onRetake,
-  onGoGeneral,
 }: {
   userName: string;
   chosenCareer: string;
   result: Result | null;
   onLogout: () => void;
   onRetake: () => void;
-  onGoGeneral: () => void;
 }) {
   const [view, setView] = useState<View>("inicio");
   const [saved, setSaved] = useState(false);
@@ -63,20 +75,13 @@ export default function StudentHome({
     ];
   }, [result]);
 
-  const suggested = useMemo(() => {
-    const base = result?.shown;
-    if (base && base.length) return base;
-    return [];
-  }, [result]);
+  const suggested = useMemo(() => result?.shown ?? [], [result]);
+  const career = chosenCareer || "Ingeniería de Software";
+  const topPct = topResults[0]?.pct ?? 88;
+  const compatCount = (result?.shown?.length ?? 5);
 
-  const railItems: { v: View; icon: string }[] = [
-    { v: "inicio", icon: "home" },
-    { v: "historial", icon: "tests" },
-    { v: "carreras", icon: "cap" },
-    { v: "config", icon: "gear" },
-  ];
-
-  const options: { v: View; icon: string; label: string }[] = [
+  const nav: { v: View; icon: string; label: string }[] = [
+    { v: "inicio", icon: "home", label: "Inicio" },
     { v: "historial", icon: "tests", label: "Historial de tests" },
     { v: "perfil", icon: "user", label: "Mi perfil" },
     { v: "carreras", icon: "cap", label: "Carreras sugeridas" },
@@ -86,32 +91,51 @@ export default function StudentHome({
   const saveProfile = () => { setSaved(true); setTimeout(() => setSaved(false), 2200); };
 
   return (
-    <div style={css("min-height: 100vh; background: #F2F4F8; display: grid; grid-template-columns: 68px 1fr 280px; animation: vtFadeIn .45s ease both;")}>
-      {/* ── Rail de iconos ── */}
-      <aside style={css("display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 0; background: #000F37; position: sticky; top: 0; height: 100vh;")}>
-        <div style={css("display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; background: #FF395C; color: #fff; font-weight: 900; font-size: 20px; margin-bottom: 14px; box-shadow: 0 8px 20px rgba(255,57,92,.4);")}>+</div>
-        {railItems.map((r, i) => {
-          const active = view === r.v;
-          return (
-            <Fx
-              key={i}
-              as="button"
-              onClick={() => setView(r.v)}
-              base={`display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; border: none; cursor: pointer; transition: all .18s ease; background: ${active ? "rgba(255,255,255,.14)" : "transparent"}; color: ${active ? "#fff" : "rgba(255,255,255,.55)"};`}
-              hover="background: rgba(255,255,255,.1); color: #fff;"
-            >
-              <Icon name={r.icon} />
-            </Fx>
-          );
-        })}
+    <div style={css("min-height: 100vh; background: #F2F4F8; display: grid; grid-template-columns: 252px 1fr; animation: vtFadeIn .45s ease both;")}>
+      {/* ── Sidebar única (izquierda) ── */}
+      <aside style={css("display: flex; flex-direction: column; padding: 22px 16px; background: #000F37; position: sticky; top: 0; height: 100vh;")}>
+        <div style={css("display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px; font-weight: 900; font-size: 19px; color: #fff; letter-spacing: -.02em;")}>
+          <span style={css("display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: #FF395C; color: #fff; font-size: 16px; transform: rotate(-6deg);")}>V</span>
+          Voca<span style={css("color: #FF395C; margin-left: -5px;")}>Twin</span>
+        </div>
+
+        {/* Perfil */}
+        <div style={css("display: flex; align-items: center; gap: 12px; padding: 14px; margin-bottom: 18px; border-radius: 14px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08);")}>
+          <span style={css("display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #0661FC; color: #fff; font-size: 15px; font-weight: 900; flex-shrink: 0;")}>{initials}</span>
+          <div style={css("min-width: 0;")}>
+            <div style={css("font-size: 14px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;")}>{userName}</div>
+            <div style={css("font-size: 12px; font-weight: 700; color: rgba(255,255,255,.55);")}>Estudiante</div>
+          </div>
+        </div>
+
+        <div style={css("font-size: 11px; font-weight: 800; color: rgba(255,255,255,.4); letter-spacing: .1em; padding: 0 10px 8px;")}>MENÚ</div>
+        <nav style={css("display: grid; gap: 4px;")}>
+          {nav.map((n, i) => {
+            const active = view === n.v;
+            return (
+              <Fx
+                key={i}
+                as="button"
+                onClick={() => setView(n.v)}
+                base={`display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 12px 14px; border-radius: 12px; border: none; transition: all .16s ease; background: ${active ? "rgba(255,255,255,.12)" : "transparent"}; color: ${active ? "#fff" : "rgba(255,255,255,.6)"};`}
+                hover="background: rgba(255,255,255,.08); color: #fff;"
+              >
+                <Icon name={n.icon} size={18} />
+                {n.label}
+              </Fx>
+            );
+          })}
+        </nav>
+
         <div style={css("flex: 1;")} />
-        <Fx as="button" onClick={onLogout} base="display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; border: none; cursor: pointer; background: transparent; color: rgba(255,255,255,.55); transition: all .18s ease;" hover="background: rgba(227,0,11,.2); color: #FF395C;">
-          <Icon name="logout" />
+        <Fx as="button" onClick={onLogout} base="display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font-family: inherit; font-size: 14px; font-weight: 800; cursor: pointer; padding: 12px 14px; border-radius: 12px; border: none; background: transparent; color: #FF6B7E; transition: all .16s ease;" hover="background: rgba(227,0,11,.16); color: #FF395C;">
+          <Icon name="logout" size={18} />
+          Cerrar sesión
         </Fx>
       </aside>
 
       {/* ── Contenido principal ── */}
-      <main style={css("padding: 30px 34px; min-width: 0; overflow-x: hidden;")}>
+      <main style={css("padding: 30px 36px 50px; min-width: 0; overflow-x: hidden;")}>
         <div style={css("margin-bottom: 24px; animation: vtFadeUp .5s ease both;")}>
           <h1 style={css("margin: 0 0 6px; font-size: clamp(24px, 3vw, 32px); font-weight: 900; letter-spacing: -.03em; color: #000F37;")}>Tu dashboard vocacional</h1>
           <p style={css("margin: 0; font-size: 14px; color: #4A4F55;")}>Resultados, seguimiento con IA y recomendaciones</p>
@@ -119,22 +143,39 @@ export default function StudentHome({
 
         {/* ===== INICIO ===== */}
         {view === "inicio" && (
-          <div style={css("display: grid; grid-template-columns: 1.35fr 1fr; gap: 20px; align-items: start; animation: vtFadeIn .35s ease both;")}>
+          <div style={css("display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; align-items: start; animation: vtFadeIn .35s ease both;")}>
             <div style={css("display: flex; flex-direction: column; gap: 20px; min-width: 0;")}>
               {/* Carrera elegida */}
-              <div style={css("position: relative; overflow: hidden; background: linear-gradient(135deg, #0661FC, #0a3fb0); border-radius: 20px; padding: 24px; color: #fff; box-shadow: 0 20px 44px rgba(6,97,252,.28); animation: vtPop .5s cubic-bezier(.16,1,.3,1) both;")}>
-                <div style={css("position: absolute; top: -40px; right: -30px; width: 180px; height: 180px; border-radius: 50%; background: rgba(61,220,218,.28); filter: blur(6px);")} />
-                <div style={css("position: relative; display: flex; align-items: center; gap: 8px; margin-bottom: 10px;")}>
-                  <span style={css("display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: rgba(255,255,255,.2);")}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-                  </span>
+              <div style={css("position: relative; overflow: hidden; background: linear-gradient(135deg, #0661FC, #0a3fb0); border-radius: 20px; padding: 26px; color: #fff; box-shadow: 0 20px 44px rgba(6,97,252,.28); animation: vtPop .5s cubic-bezier(.16,1,.3,1) both;")}>
+                <div style={css("position: absolute; top: -40px; right: -30px; width: 190px; height: 190px; border-radius: 50%; background: rgba(61,220,218,.28); filter: blur(6px);")} />
+                <div style={css("position: relative; display: flex; align-items: center; gap: 8px; margin-bottom: 12px;")}>
+                  <span style={css("display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: rgba(255,255,255,.2);")}><Icon name="check" size={15} /></span>
                   <span style={css("font-size: 12px; font-weight: 800; letter-spacing: .06em; color: rgba(255,255,255,.85);")}>TU CARRERA ELEGIDA</span>
                 </div>
-                <h2 style={css("position: relative; margin: 0; font-size: clamp(22px, 2.6vw, 30px); font-weight: 900; letter-spacing: -.02em; line-height: 1.1;")}>{chosenCareer || "Ingeniería de Software"}</h2>
+                <h2 style={css("position: relative; margin: 0 0 16px; font-size: clamp(22px, 2.6vw, 30px); font-weight: 900; letter-spacing: -.02em; line-height: 1.1;")}>{career}</h2>
+                <div style={css("position: relative; display: flex; gap: 10px; flex-wrap: wrap;")}>
+                  <Fx as="button" onClick={() => setView("carreras")} base="font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; padding: 10px 16px; border-radius: 11px; border: none; background: #fff; color: #0661FC; transition: transform .16s ease;" hover="transform: translateY(-2px);">Ver comparativa</Fx>
+                  <Fx as="button" onClick={() => setView("carreras")} base="font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; padding: 10px 16px; border-radius: 11px; border: 1.5px solid rgba(255,255,255,.4); background: transparent; color: #fff; transition: all .16s ease;" hover="background: rgba(255,255,255,.14);">Otras carreras</Fx>
+                </div>
+              </div>
+
+              {/* Mini-stats */}
+              <div style={css("display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;")}>
+                {[
+                  { icon: "target", label: "Afinidad principal", value: topPct + "%", color: "#0661FC" },
+                  { icon: "layers", label: "Carreras compatibles", value: String(compatCount), color: "#0a8f8c" },
+                  { icon: "tests", label: "Tests realizados", value: String(TEST_HISTORY.length), color: "#FF395C" },
+                ].map((s, i) => (
+                  <Fx key={i} base={`background: #fff; border: 1px solid #DDE1E6; border-radius: 16px; padding: 18px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .5s ease both; animation-delay: ${i * 0.07}s; transition: transform .2s ease, box-shadow .2s ease;`} hover="transform: translateY(-4px); box-shadow: 0 16px 30px rgba(0,15,55,.09);">
+                    <span style={{ ...css("display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; margin-bottom: 12px;"), background: s.color + "1f", color: s.color }}><Icon name={s.icon} size={19} /></span>
+                    <div style={{ ...css("font-size: 26px; font-weight: 900; letter-spacing: -.03em; line-height: 1;"), color: "#161D1F" }}>{s.value}</div>
+                    <div style={css("margin-top: 5px; font-size: 12px; font-weight: 700; color: #848D95;")}>{s.label}</div>
+                  </Fx>
+                ))}
               </div>
 
               {/* Resultados del test */}
-              <div style={css("background: #fff; border: 1px solid #DDE1E6; border-radius: 18px; padding: 24px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .5s ease both; animation-delay: .06s;")}>
+              <div style={css("background: #fff; border: 1px solid #DDE1E6; border-radius: 18px; padding: 24px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .5s ease both; animation-delay: .12s;")}>
                 <h3 style={css("margin: 0 0 18px; font-size: 16px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Tus resultados del test vocacional</h3>
                 <div style={css("display: grid; gap: 16px;")}>
                   {topResults.map((r, i) => (
@@ -149,33 +190,43 @@ export default function StudentHome({
                 </div>
               </div>
 
-              {/* Video IA */}
-              <div style={css("background: #fff; border: 1px solid #DDE1E6; border-radius: 18px; padding: 24px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .5s ease both; animation-delay: .12s;")}>
-                <h3 style={css("margin: 0 0 16px; font-size: 16px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Video informativo: tu perfil vocacional</h3>
-                <div style={css("position: relative; aspect-ratio: 16/9; border-radius: 14px; overflow: hidden; background: linear-gradient(135deg, #1a2a5e, #000F37);")}>
-                  <div style={css("position: absolute; inset: 0; display: grid; place-items: center;")}>
-                    <Fx as="button" base="display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; border: none; background: rgba(255,255,255,.22); color: #fff; cursor: pointer; backdrop-filter: blur(4px); animation: vtPulseSoft 2.4s ease-in-out infinite;" hover="transform: scale(1.1);" active="transform: scale(.95);"><Icon name="play" size={26} /></Fx>
-                  </div>
+              {/* Próximos pasos */}
+              <div style={css("background: #fff; border: 1px solid #DDE1E6; border-radius: 18px; padding: 24px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .5s ease both; animation-delay: .18s;")}>
+                <h3 style={css("margin: 0 0 16px; font-size: 16px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Próximos pasos</h3>
+                <div style={css("display: grid; gap: 8px;")}>
+                  {NEXT_STEPS.map((s, i) => (
+                    <Fx key={i} base={`display: flex; align-items: center; gap: 13px; padding: 12px 14px; border-radius: 12px; border: 1px solid #EEF1F5; background: #F8FAFC; cursor: pointer; transition: all .16s ease; animation: vtFadeUp .45s ease both; animation-delay: ${0.2 + i * 0.05}s;`} hover="border-color: #0661FC; background: #fff; transform: translateX(3px);">
+                      <span style={{ ...css("display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;"), background: s.done ? "#0a8f8c" : "#E8EBF0", color: s.done ? "#fff" : "#848D95" }}>
+                        {s.done ? <Icon name="check" size={14} /> : <span style={css("width: 7px; height: 7px; border-radius: 50%; background: #B0B7C0;")} />}
+                      </span>
+                      <span style={{ ...css("flex: 1; font-size: 14px; font-weight: 700;"), color: s.done ? "#848D95" : "#161D1F", textDecoration: s.done ? "line-through" : "none" }}>{s.label}</span>
+                      <span style={css("color: #C7CDD6;")}><Icon name="arrow" size={16} /></span>
+                    </Fx>
+                  ))}
                 </div>
-                <p style={css("margin: 14px 0 0; font-size: 13px; color: #848D95;")}>Generado por IA según tus resultados · 2:30 min</p>
               </div>
             </div>
 
             {/* Asistente */}
-            <div style={css("display: flex; flex-direction: column; background: #fff; border: 1px solid #DDE1E6; border-radius: 18px; overflow: hidden; box-shadow: 0 2px 0 rgba(0,15,55,.03); min-height: 560px; animation: vtSlideRight .5s ease both; animation-delay: .08s;")}>
+            <div style={css("display: flex; flex-direction: column; background: #fff; border: 1px solid #DDE1E6; border-radius: 18px; overflow: hidden; box-shadow: 0 2px 0 rgba(0,15,55,.03); position: sticky; top: 20px; height: calc(100vh - 130px); min-height: 460px; animation: vtSlideLeft .5s ease both; animation-delay: .08s;")}>
               <div style={css("display: flex; align-items: center; gap: 11px; padding: 16px; background: #0661FC; color: #fff;")}>
                 <span style={css("display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,.2);")}><Icon name="chat" size={18} /></span>
                 <div><div style={css("font-size: 14px; font-weight: 900;")}>Asistente VocaTwin</div><div style={css("font-size: 11px; font-weight: 700; color: rgba(255,255,255,.8);")}>Con IA · en línea</div></div>
               </div>
               <div style={css("flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #F8FAFC; overflow-y: auto;")}>
                 <div style={css("max-width: 88%; align-self: flex-start; background: #fff; border: 1px solid #EEF1F5; border-radius: 14px 14px 14px 4px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; color: #161D1F; box-shadow: 0 2px 8px rgba(0,15,55,.05); animation: vtFadeUp .4s ease both;")}>
-                  Hola {userName}, vi tus resultados. ¿Quieres que te cuente más sobre {chosenCareer || "Ingeniería de Software"}?
+                  Hola {userName.split(" ")[0]}, vi tus resultados. ¿Quieres que te cuente más sobre {career}?
                 </div>
                 <div style={css("max-width: 70%; align-self: flex-end; background: #0661FC; color: #fff; border-radius: 14px 14px 4px 14px; padding: 12px 14px; font-size: 13.5px; font-weight: 700; box-shadow: 0 6px 16px rgba(6,97,252,.3); animation: vtFadeUp .4s ease both; animation-delay: .1s;")}>
                   Sí, por favor
                 </div>
                 <div style={css("max-width: 88%; align-self: flex-start; background: #fff; border: 1px solid #EEF1F5; border-radius: 14px 14px 14px 4px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; color: #161D1F; box-shadow: 0 2px 8px rgba(0,15,55,.05); animation: vtFadeUp .4s ease both; animation-delay: .2s;")}>
                   Es la carrera con mayor afinidad en tu perfil. Te muestro universidades y un plan de estudios recomendado. 🎓
+                </div>
+                <div style={css("display: flex; flex-wrap: wrap; gap: 7px; margin-top: 4px; animation: vtFadeUp .4s ease both; animation-delay: .3s;")}>
+                  {["Universidades", "Plan de estudios", "Campo laboral"].map((q, k) => (
+                    <span key={k} style={css("padding: 8px 12px; border-radius: 99px; border: 1.5px solid #E8EBF0; background: #fff; font-size: 12px; font-weight: 700; color: #4A4F55; cursor: pointer;")}>{q}</span>
+                  ))}
                 </div>
               </div>
               <div style={css("display: flex; align-items: center; gap: 10px; padding: 14px; border-top: 1px solid #EEF1F5;")}>
@@ -188,26 +239,43 @@ export default function StudentHome({
 
         {/* ===== HISTORIAL ===== */}
         {view === "historial" && (
-          <div style={css("animation: vtFadeIn .35s ease both; max-width: 760px;")}>
-            <div style={css("display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;")}>
-              <h3 style={css("margin: 0; font-size: 20px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Historial de tests</h3>
-              <Fx as="button" onClick={onRetake} base="font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; padding: 10px 18px; border-radius: 11px; border: none; background: #FF395C; color: #fff; box-shadow: 0 8px 20px rgba(255,57,92,.3); transition: transform .16s ease;" hover="transform: translateY(-2px);">↻ Repetir test</Fx>
-            </div>
-            <div style={css("display: grid; gap: 14px;")}>
-              {TEST_HISTORY.map((t, i) => (
-                <Fx key={i} base={`display: flex; align-items: center; gap: 16px; background: #fff; border: 1px solid #DDE1E6; border-radius: 16px; padding: 18px 22px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .5s ease both; animation-delay: ${i * 0.08}s; transition: transform .2s ease, box-shadow .2s ease;`} hover="transform: translateY(-3px); box-shadow: 0 16px 32px rgba(0,15,55,.08);">
-                  <span style={css("display: grid; place-items: center; width: 46px; height: 46px; border-radius: 13px; background: rgba(6,97,252,.1); color: #0661FC; flex-shrink: 0;")}><Icon name="tests" /></span>
-                  <div style={css("flex: 1; min-width: 0;")}>
-                    <div style={css("font-size: 15px; font-weight: 800; color: #161D1F;")}>{t.titulo}</div>
-                    <div style={css("font-size: 13px; font-weight: 600; color: #848D95; margin-top: 3px;")}>{t.fecha} · {t.preguntas} preguntas</div>
-                  </div>
-                  <div style={css("text-align: right; flex-shrink: 0;")}>
-                    <div style={css("font-size: 12px; font-weight: 700; color: #848D95;")}>Carrera top</div>
-                    <div style={css("font-size: 14px; font-weight: 800; color: #161D1F;")}>{t.top}</div>
-                  </div>
-                  <span style={css("display: grid; place-items: center; min-width: 54px; height: 40px; border-radius: 11px; background: rgba(10,143,140,.12); color: #0a8f8c; font-size: 15px; font-weight: 900; flex-shrink: 0;")}>{t.pct}%</span>
+          <div style={css("animation: vtFadeIn .35s ease both; max-width: 880px; margin: 0 auto;")}>
+            {/* Resumen */}
+            <div style={css("display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 22px;")}>
+              {[
+                { label: "Tests realizados", value: String(TEST_HISTORY.length), color: "#0661FC", icon: "tests" },
+                { label: "Promedio de afinidad", value: "74%", color: "#0a8f8c", icon: "target" },
+                { label: "Último test", value: "12 jun", color: "#FF395C", icon: "spark" },
+              ].map((s, i) => (
+                <Fx key={i} base={`display: flex; align-items: center; gap: 14px; background: #fff; border: 1px solid #DDE1E6; border-radius: 16px; padding: 18px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .5s ease both; animation-delay: ${i * 0.07}s; transition: transform .2s ease;`} hover="transform: translateY(-3px);">
+                  <span style={{ ...css("display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; flex-shrink: 0;"), background: s.color + "1f", color: s.color }}><Icon name={s.icon} /></span>
+                  <div><div style={{ ...css("font-size: 22px; font-weight: 900; letter-spacing: -.02em; line-height: 1;"), color: "#161D1F" }}>{s.value}</div><div style={css("margin-top: 4px; font-size: 12px; font-weight: 700; color: #848D95;")}>{s.label}</div></div>
                 </Fx>
               ))}
+            </div>
+
+            <div style={css("display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;")}>
+              <h3 style={css("margin: 0; font-size: 18px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Línea de tiempo</h3>
+              <Fx as="button" onClick={onRetake} base="font-family: inherit; font-size: 13px; font-weight: 800; cursor: pointer; padding: 10px 18px; border-radius: 11px; border: none; background: #FF395C; color: #fff; box-shadow: 0 8px 20px rgba(255,57,92,.3); transition: transform .16s ease;" hover="transform: translateY(-2px);">↻ Repetir test</Fx>
+            </div>
+
+            {/* Timeline */}
+            <div style={css("position: relative; padding-left: 28px;")}>
+              <div style={css("position: absolute; left: 9px; top: 8px; bottom: 8px; width: 2px; background: #E1E5EC;")} />
+              <div style={css("display: grid; gap: 14px;")}>
+                {TEST_HISTORY.map((t, i) => (
+                  <div key={i} style={{ ...css("position: relative; animation: vtFadeUp .5s ease both;"), animationDelay: i * 0.08 + "s" }}>
+                    <span style={{ ...css("position: absolute; left: -27px; top: 22px; width: 12px; height: 12px; border-radius: 50%; border: 3px solid #F2F4F8;"), background: BAR_PALETTE[i % BAR_PALETTE.length] }} />
+                    <Fx base="display: flex; align-items: center; gap: 16px; background: #fff; border: 1px solid #DDE1E6; border-radius: 16px; padding: 18px 22px; box-shadow: 0 2px 0 rgba(0,15,55,.03); transition: transform .2s ease, box-shadow .2s ease;" hover="transform: translateX(4px); box-shadow: 0 16px 32px rgba(0,15,55,.08);">
+                      <div style={css("flex: 1; min-width: 0;")}>
+                        <div style={css("font-size: 15px; font-weight: 800; color: #161D1F;")}>{t.titulo}</div>
+                        <div style={css("font-size: 13px; font-weight: 600; color: #848D95; margin-top: 3px;")}>{t.fecha} · {t.preguntas} preguntas · Top: {t.top}</div>
+                      </div>
+                      <span style={{ ...css("display: grid; place-items: center; min-width: 56px; height: 42px; border-radius: 12px; font-size: 15px; font-weight: 900; flex-shrink: 0;"), background: BAR_PALETTE[i % BAR_PALETTE.length] + "1f", color: BAR_PALETTE[i % BAR_PALETTE.length] }}>{t.pct}%</span>
+                    </Fx>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -233,7 +301,7 @@ export default function StudentHome({
                   ["Colegio", "I.E. San José"],
                   ["Grado", "5° de secundaria"],
                 ].map((f, i) => (
-                  <div key={i} style={i >= 4 ? css("grid-column: span 1;") : undefined}>
+                  <div key={i}>
                     <label style={css("display: block; font-size: 12px; font-weight: 800; color: #4A4F55; margin-bottom: 6px;")}>{f[0]}</label>
                     <Fx as="input" defaultValue={f[1]} base="width: 100%; font-family: inherit; font-size: 14px; padding: 12px 14px; border-radius: 11px; border: 1.5px solid #E8EBF0; background: #F8FAFC; color: #161D1F; outline: none; transition: border-color .16s ease;" focus="border-color: #0661FC; background: #fff;" />
                   </div>
@@ -243,8 +311,7 @@ export default function StudentHome({
                 <Fx as="button" onClick={saveProfile} base="font-family: inherit; font-size: 14px; font-weight: 800; cursor: pointer; padding: 13px 24px; border-radius: 12px; border: none; background: #0661FC; color: #fff; box-shadow: 0 10px 24px rgba(6,97,252,.3); transition: transform .16s ease;" hover="transform: translateY(-2px);" active="transform: scale(.98);">Guardar cambios</Fx>
                 {saved && (
                   <span style={css("display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 800; color: #0a8f8c; animation: vtFadeIn .3s ease both;")}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-                    Cambios guardados
+                    <Icon name="check" size={16} /> Cambios guardados
                   </span>
                 )}
               </div>
@@ -255,17 +322,39 @@ export default function StudentHome({
         {/* ===== CARRERAS SUGERIDAS ===== */}
         {view === "carreras" && (
           <div style={css("animation: vtFadeIn .35s ease both;")}>
-            <h3 style={css("margin: 0 0 18px; font-size: 20px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Carreras sugeridas para ti</h3>
+            <h3 style={css("margin: 0 0 6px; font-size: 20px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Carreras sugeridas para ti</h3>
+            <p style={css("margin: 0 0 20px; font-size: 14px; color: #4A4F55;")}>Calculadas a partir de tus respuestas en el test vocacional.</p>
+
+            {/* Tu elección destacada */}
+            <div style={css("position: relative; overflow: hidden; background: linear-gradient(135deg, #000F37, #0a2a6b); border-radius: 20px; padding: 26px; color: #fff; margin-bottom: 20px; box-shadow: 0 20px 44px rgba(0,15,55,.28); animation: vtPop .5s cubic-bezier(.16,1,.3,1) both;")}>
+              <div style={css("position: absolute; top: -50px; right: -30px; width: 200px; height: 200px; border-radius: 50%; background: radial-gradient(circle, rgba(255,57,92,.35), transparent 70%);")} />
+              <div style={css("position: relative; display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;")}>
+                <div style={css("min-width: 0;")}>
+                  <span style={css("display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 99px; background: #FF395C; font-size: 11px; font-weight: 900; letter-spacing: .04em; margin-bottom: 12px;")}>★ TU ELECCIÓN</span>
+                  <h4 style={css("margin: 0 0 8px; font-size: clamp(22px, 2.4vw, 28px); font-weight: 900; letter-spacing: -.02em;")}>{career}</h4>
+                  <p style={css("margin: 0; max-width: 460px; font-size: 14px; line-height: 1.55; color: rgba(255,255,255,.75);")}>Es la carrera con mayor afinidad en tu perfil. Explora universidades, su malla y el campo laboral para confirmar tu decisión.</p>
+                </div>
+                <div style={{ ...css("display: grid; place-items: center; width: 110px; height: 110px; border-radius: 50%; flex-shrink: 0;"), background: `conic-gradient(#FF395C ${topPct * 3.6}deg, rgba(255,255,255,.14) 0)` }}>
+                  <div style={css("display: grid; place-items: center; width: 84px; height: 84px; border-radius: 50%; background: #000F37;")}>
+                    <div style={css("text-align: center;")}><div style={css("font-size: 26px; font-weight: 900; line-height: 1;")}>{topPct}%</div><div style={css("font-size: 10px; color: rgba(255,255,255,.6); font-weight: 700;")}>AFINIDAD</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {suggested.length ? (
-              <div style={css("display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px;")}>
+              <div style={css("display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 16px;")}>
                 {suggested.map((s, i) => (
                   <Fx key={i} base={`background: #fff; border: 1px solid #DDE1E6; border-top: 4px solid ${BAR_PALETTE[i % BAR_PALETTE.length]}; border-radius: 16px; padding: 20px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .5s ease both; animation-delay: ${i * 0.06}s; transition: transform .2s ease, box-shadow .2s ease;`} hover="transform: translateY(-5px); box-shadow: 0 20px 38px rgba(0,15,55,.1);">
                     <div style={css("display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;")}>
                       <span style={{ ...css("display: inline-flex; padding: 4px 11px; border-radius: 99px; font-size: 11px; font-weight: 800;"), background: BAR_PALETTE[i % BAR_PALETTE.length] + "1f", color: BAR_PALETTE[i % BAR_PALETTE.length] }}>{s.cat}</span>
                       <span style={{ ...css("font-size: 22px; font-weight: 900;"), color: BAR_PALETTE[i % BAR_PALETTE.length] }}>{s.pct}%</span>
                     </div>
-                    <h4 style={css("margin: 0 0 6px; font-size: 16px; font-weight: 800; color: #161D1F; line-height: 1.25;")}>{s.name}</h4>
-                    <p style={css("margin: 0; font-size: 13px; line-height: 1.5; color: #848D95;")}>{s.desc}</p>
+                    <h4 style={css("margin: 0 0 8px; font-size: 16px; font-weight: 800; color: #161D1F; line-height: 1.25;")}>{s.name}</h4>
+                    <p style={css("margin: 0 0 14px; font-size: 13px; line-height: 1.5; color: #848D95;")}>{s.desc}</p>
+                    <div style={css("height: 7px; border-radius: 99px; background: #EEF1F5; overflow: hidden;")}>
+                      <div style={{ ...css("height: 100%; border-radius: 99px; transform-origin: left; animation: vtGrowX 1s cubic-bezier(.16,1,.3,1) both;"), width: s.pct + "%", background: BAR_PALETTE[i % BAR_PALETTE.length], animationDelay: 0.2 + i * 0.08 + "s" }} />
+                    </div>
                   </Fx>
                 ))}
               </div>
@@ -275,9 +364,10 @@ export default function StudentHome({
                 <Fx as="button" onClick={onRetake} base="font-family: inherit; font-size: 14px; font-weight: 800; cursor: pointer; padding: 12px 22px; border-radius: 12px; border: none; background: #FF395C; color: #fff; transition: transform .16s ease;" hover="transform: translateY(-2px);">Hacer el test</Fx>
               </div>
             )}
+
             <div style={css("margin-top: 22px;")}>
-              <Fx as="button" onClick={onGoGeneral} base="display: inline-flex; align-items: center; gap: 8px; font-family: inherit; font-size: 14px; font-weight: 800; cursor: pointer; padding: 12px 20px; border-radius: 12px; border: 1.5px solid #DDE1E6; background: #fff; color: #4A4F55; transition: all .16s ease;" hover="border-color: #0661FC; color: #0661FC; transform: translateY(-2px);">
-                Ver comparativa completa →
+              <Fx as="button" onClick={onRetake} base="display: inline-flex; align-items: center; gap: 8px; font-family: inherit; font-size: 14px; font-weight: 800; cursor: pointer; padding: 12px 20px; border-radius: 12px; border: 1.5px solid #DDE1E6; background: #fff; color: #4A4F55; transition: all .16s ease;" hover="border-color: #FF395C; color: #FF395C; transform: translateY(-2px);">
+                ↻ Repetir el test vocacional
               </Fx>
             </div>
           </div>
@@ -285,58 +375,52 @@ export default function StudentHome({
 
         {/* ===== CONFIGURACIÓN ===== */}
         {view === "config" && (
-          <div style={css("animation: vtFadeIn .35s ease both; max-width: 620px;")}>
+          <div style={css("animation: vtFadeIn .35s ease both; max-width: 640px;")}>
             <h3 style={css("margin: 0 0 18px; font-size: 20px; font-weight: 900; color: #000F37; letter-spacing: -.02em;")}>Configuración</h3>
-            <div style={css("background: #fff; border: 1px solid #DDE1E6; border-radius: 18px; overflow: hidden; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .5s ease both;")}>
-              {[
+
+            <ConfigGroup icon="bell" title="Notificaciones" delay={0}
+              items={[
                 ["Notificaciones por correo", "Recibe novedades sobre tu carrera", true],
                 ["Recordatorios de test", "Avisos para completar tus tests", true],
+              ]}
+            />
+            <ConfigGroup icon="shield" title="Privacidad" delay={0.06}
+              items={[
                 ["Perfil visible para docentes", "Permite que tu profesor vea tu avance", false],
-                ["Modo oscuro", "Cambia la apariencia de la app", false],
-              ].map((s, i) => (
-                <Toggle key={i} label={s[0] as string} desc={s[1] as string} initial={s[2] as boolean} last={i === 3} />
-              ))}
+                ["Compartir resultados anónimos", "Ayuda a mejorar las recomendaciones", true],
+              ]}
+            />
+            <ConfigGroup icon="moon" title="Apariencia" delay={0.12}
+              items={[["Modo oscuro", "Cambia la apariencia de la app", false]]}
+            />
+
+            {/* Cuenta */}
+            <div style={css("background: #fff; border: 1px solid #DDE1E6; border-radius: 16px; overflow: hidden; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .5s ease both; animation-delay: .18s;")}>
+              <div style={css("display: flex; align-items: center; gap: 10px; padding: 16px 20px 10px; font-size: 14px; font-weight: 900; color: #000F37;")}><Icon name="user" size={17} /> Cuenta</div>
+              <Fx as="button" base="display: flex; align-items: center; justify-content: space-between; width: 100%; text-align: left; font-family: inherit; cursor: pointer; padding: 16px 20px; border: none; border-top: 1px solid #F2F4F8; background: #fff; transition: background .14s ease;" hover="background: #F8FAFC;">
+                <span style={css("font-size: 14px; font-weight: 700; color: #161D1F;")}>Cambiar contraseña</span>
+                <span style={css("color: #C7CDD6;")}><Icon name="arrow" size={16} /></span>
+              </Fx>
+              <Fx as="button" onClick={onLogout} base="display: flex; align-items: center; justify-content: space-between; width: 100%; text-align: left; font-family: inherit; cursor: pointer; padding: 16px 20px; border: none; border-top: 1px solid #F2F4F8; background: #fff; transition: background .14s ease;" hover="background: rgba(227,0,11,.05);">
+                <span style={css("font-size: 14px; font-weight: 700; color: #E3000B;")}>Cerrar sesión</span>
+                <span style={css("color: #E3000B;")}><Icon name="logout" size={16} /></span>
+              </Fx>
             </div>
           </div>
         )}
       </main>
+    </div>
+  );
+}
 
-      {/* ── Panel de opciones (derecha) ── */}
-      <aside style={css("padding: 24px 22px; background: #fff; border-left: 1px solid #DDE1E6; position: sticky; top: 0; height: 100vh; overflow-y: auto; animation: vtSlideLeft .5s ease both;")}>
-        <div style={css("display: flex; align-items: center; gap: 12px; margin-bottom: 28px;")}>
-          <span style={css("display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; background: #0661FC; color: #fff; font-size: 16px; font-weight: 900;")}>{initials}</span>
-          <div style={css("min-width: 0;")}>
-            <div style={css("font-size: 15px; font-weight: 900; color: #161D1F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;")}>{userName}</div>
-            <div style={css("font-size: 12px; font-weight: 700; color: #848D95;")}>Estudiante</div>
-          </div>
-        </div>
-
-        <div style={css("font-size: 12px; font-weight: 800; color: #848D95; letter-spacing: .08em; margin-bottom: 12px;")}>OPCIONES</div>
-        <div style={css("display: grid; gap: 4px;")}>
-          {options.map((o, i) => {
-            const active = view === o.v;
-            return (
-              <Fx
-                key={i}
-                as="button"
-                onClick={() => setView(o.v)}
-                base={`display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 12px 14px; border-radius: 12px; border: none; transition: all .16s ease; background: ${active ? "rgba(6,97,252,.08)" : "transparent"}; color: ${active ? "#0661FC" : "#4A4F55"};`}
-                hover="background: #F2F4F8;"
-              >
-                <Icon name={o.icon} size={18} />
-                {o.label}
-              </Fx>
-            );
-          })}
-        </div>
-
-        <div style={css("height: 1px; background: #EEF1F5; margin: 16px 0;")} />
-
-        <Fx as="button" onClick={onLogout} base="display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font-family: inherit; font-size: 14px; font-weight: 800; cursor: pointer; padding: 12px 14px; border-radius: 12px; border: none; background: transparent; color: #E3000B; transition: all .16s ease;" hover="background: rgba(227,0,11,.07);">
-          <Icon name="logout" size={18} />
-          Cerrar sesión
-        </Fx>
-      </aside>
+// Grupo de configuración con encabezado e interruptores.
+function ConfigGroup({ icon, title, items, delay }: { icon: string; title: string; items: [string, string, boolean][]; delay: number }) {
+  return (
+    <div style={{ ...css("background: #fff; border: 1px solid #DDE1E6; border-radius: 16px; overflow: hidden; box-shadow: 0 2px 0 rgba(0,15,55,.03); margin-bottom: 16px; animation: vtFadeUp .5s ease both;"), animationDelay: delay + "s" }}>
+      <div style={css("display: flex; align-items: center; gap: 10px; padding: 16px 20px 10px; font-size: 14px; font-weight: 900; color: #000F37;")}><Icon name={icon} size={17} /> {title}</div>
+      {items.map((it, i) => (
+        <Toggle key={i} label={it[0]} desc={it[1]} initial={it[2]} last={i === items.length - 1} />
+      ))}
     </div>
   );
 }
@@ -345,7 +429,7 @@ export default function StudentHome({
 function Toggle({ label, desc, initial, last }: { label: string; desc: string; initial: boolean; last: boolean }) {
   const [on, setOn] = useState(initial);
   return (
-    <div style={{ ...css("display: flex; align-items: center; gap: 16px; padding: 18px 22px;"), borderBottom: last ? "none" : "1px solid #F2F4F8" }}>
+    <div style={{ ...css("display: flex; align-items: center; gap: 16px; padding: 16px 20px;"), borderTop: "1px solid #F2F4F8", marginBottom: last ? 0 : 0 }}>
       <div style={css("flex: 1; min-width: 0;")}>
         <div style={css("font-size: 14px; font-weight: 800; color: #161D1F;")}>{label}</div>
         <div style={css("font-size: 12px; font-weight: 600; color: #848D95; margin-top: 2px;")}>{desc}</div>
