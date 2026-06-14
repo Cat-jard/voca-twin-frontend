@@ -36,11 +36,11 @@ interface CardModal {
 const BLOCK = 5;
 
 const celebBgs: Record<CelebTheme, string> = {
-  fire:   "radial-gradient(circle at 50% 38%, #FF8A2A 0%, #E3000B 60%, #6e0008 100%)",
-  blue:   "radial-gradient(circle at 50% 38%, #3DDCDA 0%, #0661FC 58%, #001a4d 100%)",
+  fire: "radial-gradient(circle at 50% 38%, #FF8A2A 0%, #E3000B 60%, #6e0008 100%)",
+  blue: "radial-gradient(circle at 50% 38%, #3DDCDA 0%, #0661FC 58%, #001a4d 100%)",
   violet: "radial-gradient(circle at 50% 38%, #C77DFF 0%, #7B2CBF 58%, #2a0a4a 100%)",
-  sun:    "radial-gradient(circle at 50% 38%, #FFD23F 0%, #FF8A2A 56%, #b34700 100%)",
-  party:  "radial-gradient(circle at 50% 36%, #7ff0ee 0%, #0a8f8c 50%, #013330 100%)",
+  sun: "radial-gradient(circle at 50% 38%, #FFD23F 0%, #FF8A2A 56%, #b34700 100%)",
+  party: "radial-gradient(circle at 50% 36%, #7ff0ee 0%, #0a8f8c 50%, #013330 100%)",
 };
 const celebGlows: Record<CelebTheme, string> = {
   fire: "rgba(255,180,60,.85)", blue: "rgba(159,232,255,.8)", violet: "rgba(224,170,255,.85)",
@@ -94,7 +94,7 @@ export default function VocaTwin() {
   );
 
   const scrollTop = useCallback(() => {
-    try { window.scrollTo({ top: 0, behavior: "auto" }); } catch {}
+    try { window.scrollTo({ top: 0, behavior: "auto" }); } catch { }
   }, []);
 
   // --- Montaje: cargar localStorage + listeners de parallax y progreso ---
@@ -107,7 +107,7 @@ export default function VocaTwin() {
       setUserEmail(email);
       setResult(res ? (JSON.parse(res) as Result) : null);
       setChosenCareer(localStorage.getItem("vt_chosenCareer") || "");
-    } catch {}
+    } catch { }
 
     const mm = (e: MouseEvent) => {
       const h = heroRef.current;
@@ -184,7 +184,7 @@ export default function VocaTwin() {
       try {
         localStorage.setItem("vt_answers", JSON.stringify(answers));
         localStorage.setItem("vt_result", JSON.stringify(res));
-      } catch {}
+      } catch { }
       setLoading(false);
       setResult(res);
       setScreen("results");
@@ -227,7 +227,7 @@ export default function VocaTwin() {
     try {
       localStorage.setItem("vt_isLoggedIn", "true");
       localStorage.setItem("vt_userEmail", email);
-    } catch {}
+    } catch { }
     // Tras iniciar sesión se queda en la pantalla de resultados, ya desbloqueada.
     setIsLoggedIn(true); setUserEmail(email);
     setLoginPwd(""); setLoginHint(false); scrollTop();
@@ -240,7 +240,7 @@ export default function VocaTwin() {
       localStorage.removeItem("vt_result");
       localStorage.removeItem("vt_answers");
       localStorage.removeItem("vt_chosenCareer");
-    } catch {}
+    } catch { }
     setIsLoggedIn(false); setUserEmail(""); setResult(null); setAnswers({});
     setScreen("landing"); setTestBlock(0); setCelebration(false);
     setChosenCareer(""); scrollTop();
@@ -260,7 +260,7 @@ export default function VocaTwin() {
   // --- El alumno confirma su carrera → se queda en la página, marca elegida ---
   const chooseCareer = (career: string) => {
     setChosenCareer(career);
-    try { localStorage.setItem("vt_chosenCareer", career); } catch {}
+    try { localStorage.setItem("vt_chosenCareer", career); } catch { }
     setModalCard(null);
   };
 
@@ -476,14 +476,14 @@ export default function VocaTwin() {
                   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FF395C" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M19 5l-3 3M8 16l-3 3" /><circle cx="12" cy="12" r="3.2" /></svg>
                 </div>
                 <h3 style={css("margin: 0 0 8px; font-size: 21px; font-weight: 900; color: #161D1F;")}>Resultado personalizado</h3>
-                <p style={css("margin: 0; font-size: 15px; line-height: 1.55; color: #4A4F55;")}>Tus respuestas se traducen en tus 5 mejores carreras con porcentaje de afinidad real.</p>
+                <p style={css("margin: 0; font-size: 15px; line-height: 1.55; color: #4A4F55;")}>Tus respuestas se traducen en tus 3 mejores carreras con porcentaje de afinidad real.</p>
               </Fx>
               <Fx base="background: #fff; border: 1px solid #DDE1E6; border-radius: 22px; padding: 30px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .7s ease both; animation-delay: .13s; transition: transform .22s ease, box-shadow .22s ease;" hover="transform: translateY(-6px); box-shadow: 0 24px 44px rgba(0,15,55,.1);">
                 <div style={css("display: grid; place-items: center; width: 54px; height: 54px; border-radius: 15px; background: rgba(6,97,252,.12); margin-bottom: 22px;")}>
                   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0661FC" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z" /></svg>
                 </div>
-                <h3 style={css("margin: 0 0 8px; font-size: 21px; font-weight: 900; color: #161D1F;")}>Con catjard a tu lado</h3>
-                <p style={css("margin: 0; font-size: 15px; line-height: 1.55; color: #4A4F55;")}>25 preguntas en 5 rondas, y catjard celebra contigo entre cada una para que no decaigas.</p>
+                <h3 style={css("margin: 0 0 8px; font-size: 21px; font-weight: 900; color: #161D1F;")}>Con Cat Jard a tu lado</h3>
+                <p style={css("margin: 0; font-size: 15px; line-height: 1.55; color: #4A4F55;")}>25 preguntas en 5 rondas, y Cat Jard celebra contigo entre cada una para que no decaigas.</p>
               </Fx>
               <Fx base="background: #fff; border: 1px solid #DDE1E6; border-radius: 22px; padding: 30px; box-shadow: 0 2px 0 rgba(0,15,55,.03); animation: vtFadeUp .7s ease both; animation-delay: .21s; transition: transform .22s ease, box-shadow .22s ease;" hover="transform: translateY(-6px); box-shadow: 0 24px 44px rgba(0,15,55,.1);">
                 <div style={css("display: grid; place-items: center; width: 54px; height: 54px; border-radius: 15px; background: rgba(61,220,218,.18); margin-bottom: 22px;")}>
@@ -510,12 +510,12 @@ export default function VocaTwin() {
                 <div>
                   <div style={css("font-size: 15px; font-weight: 900; color: #3DDCDA; margin-bottom: 14px;")}>02</div>
                   <h3 style={css("margin: 0 0 8px; font-size: 22px; font-weight: 800; color: #fff;")}>Recibe tus carreras</h3>
-                  <p style={css("margin: 0; font-size: 15px; line-height: 1.6; color: rgba(255,255,255,.62);")}>Calculamos tu afinidad con más de 40 carreras y te mostramos tus 5 mejores.</p>
+                  <p style={css("margin: 0; font-size: 15px; line-height: 1.6; color: rgba(255,255,255,.62);")}>Calculamos tu afinidad con más de 40 carreras y te mostramos tus 3 mejores.</p>
                 </div>
                 <div>
                   <div style={css("font-size: 15px; font-weight: 900; color: #0661FC; margin-bottom: 14px;")}>03</div>
-                  <h3 style={css("margin: 0 0 8px; font-size: 22px; font-weight: 800; color: #fff;")}>Guarda y explora</h3>
-                  <p style={css("margin: 0; font-size: 15px; line-height: 1.6; color: rgba(255,255,255,.62);")}>Crea tu cuenta y revisa tu dashboard con el desglose completo.</p>
+                  <h3 style={css("margin: 0 0 8px; font-size: 22px; font-weight: 800; color: #fff;")}>Dialoga con Cat Jard</h3>
+                  <p style={css("margin: 0; font-size: 15px; line-height: 1.6; color: rgba(255,255,255,.62);")}>Crea tu cuenta y revisa tu dashboard con Cat Jard agente chatbot completo.</p>
                 </div>
               </div>
               <Fx as="button" onClick={startTest} base="position: relative; margin-top: 44px; font-family: inherit; font-size: 16px; font-weight: 800; cursor: pointer; padding: 16px 28px; border-radius: 14px; border: none; background: #FF395C; color: #fff; box-shadow: 0 14px 30px rgba(255,57,92,.4); transition: transform .18s cubic-bezier(.34,1.56,.64,1);" hover="transform: translateY(-3px);" active="transform: scale(.97);">Empezar ahora →</Fx>
