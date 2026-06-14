@@ -55,9 +55,11 @@ function slideBg(color: string, i: number): string {
 export default function CareerDetailModal({
   card,
   onClose,
+  onChoose,
 }: {
   card: CareerCard;
   onClose: () => void;
+  onChoose?: (career: string) => void;
 }) {
   const [moreInfo, setMoreInfo] = useState(false);
   const [chapter, setChapter] = useState(0);
@@ -104,7 +106,10 @@ export default function CareerDetailModal({
 
   const confirmChoose = () => {
     setChosen(true);
-    setTimeout(() => onClose(), 1500);
+    setTimeout(() => {
+      if (onChoose) onChoose(card.name);
+      else onClose();
+    }, 1500);
   };
 
   return (

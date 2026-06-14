@@ -3,6 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { css, Fx } from "./fx";
 import CareerDetailModal from "./CareerDetailModal";
+import TeacherDashboard from "./TeacherDashboard";
+import StudentHome from "./StudentHome";
 import {
   CELEBS,
   QUESTIONS,
@@ -12,7 +14,14 @@ import {
   type Result,
 } from "@/lib/vocaData";
 
-type Screen = "landing" | "test" | "results" | "dashboard";
+type Screen =
+  | "landing"
+  | "test"
+  | "results"
+  | "dashboard"
+  | "teacherLogin"
+  | "teacherDashboard"
+  | "studentHome";
 type DashView = "barras" | "anillo" | "tarjetas";
 
 // Datos visuales de la tarjeta abierta en la ventana de detalle.
@@ -68,6 +77,11 @@ export default function VocaTwin() {
   const [testBlock, setTestBlock] = useState(0);
   const [celebration, setCelebration] = useState(false);
   const [modalCard, setModalCard] = useState<CardModal | null>(null);
+  const [chosenCareer, setChosenCareer] = useState("");
+  const [teacherEmail, setTeacherEmail] = useState("");
+  const [teacherPwd, setTeacherPwd] = useState("");
+  const [teacherError, setTeacherError] = useState("");
+  const [teacherName, setTeacherName] = useState("Luna");
 
   // Partículas fijas por tema (se calculan una sola vez).
   const parts = useMemo(
@@ -94,6 +108,7 @@ export default function VocaTwin() {
       setIsLoggedIn(logged);
       setUserEmail(email);
       setResult(res ? (JSON.parse(res) as Result) : null);
+      setChosenCareer(localStorage.getItem("vt_chosenCareer") || "");
     } catch {}
 
     const mm = (e: MouseEvent) => {
@@ -212,9 +227,30 @@ export default function VocaTwin() {
       localStorage.removeItem("vt_userEmail");
       localStorage.removeItem("vt_result");
       localStorage.removeItem("vt_answers");
+      localStorage.removeItem("vt_chosenCareer");
     } catch {}
     setIsLoggedIn(false); setUserEmail(""); setResult(null); setAnswers({});
-    setScreen("landing"); setTestBlock(0); setCelebration(false); setDashView("barras"); scrollTop();
+    setScreen("landing"); setTestBlock(0); setCelebration(false); setDashView("barras");
+    setChosenCareer(""); scrollTop();
+  };
+
+  // --- Login del docente (estático / demo) ---
+  const doTeacherLogin = () => {
+    const email = (teacherEmail || "").trim();
+    const pwd = teacherPwd || "";
+    if (!email || !/.+@.+\..+/.test(email)) { setTeacherError("Ingresa un correo válido."); return; }
+    if (pwd.length < 4) { setTeacherError("La contraseña debe tener al menos 4 caracteres."); return; }
+    const name = email.split("@")[0];
+    setTeacherName(name.charAt(0).toUpperCase() + name.slice(1));
+    setTeacherPwd(""); setTeacherError(""); setScreen("teacherDashboard"); scrollTop();
+  };
+
+  // --- El alumno confirma su carrera → abre su panel personal ---
+  const chooseCareer = (career: string) => {
+    setChosenCareer(career);
+    try { localStorage.setItem("vt_chosenCareer", career); } catch {}
+    setModalCard(null);
+    setScreen("studentHome"); scrollTop();
   };
 
   const retake = () => {
@@ -299,6 +335,9 @@ export default function VocaTwin() {
   const isTest = screen === "test";
   const isResults = screen === "results";
   const isDashboard = screen === "dashboard";
+  const isTeacherLogin = screen === "teacherLogin";
+  const isTeacherDashboard = screen === "teacherDashboard";
+  const isStudentHome = screen === "studentHome";
   const needsLogin = isResults && !isLoggedIn;
   const alreadyLogged = isResults && isLoggedIn;
 
@@ -334,6 +373,10 @@ export default function VocaTwin() {
             <div style={css("display: flex; align-items: center; gap: 30px;")}>
               <Fx as="a" base="font-size: 15px; font-weight: 700; color: #4A4F55; cursor: pointer; text-decoration: none;" hover="color: #161D1F;">El test</Fx>
               <Fx as="a" base="font-size: 15px; font-weight: 700; color: #4A4F55; cursor: pointer; text-decoration: none;" hover="color: #161D1F;">¿Por qué?</Fx>
+              <Fx as="button" onClick={() => { setScreen("teacherLogin"); setTeacherError(""); scrollTop(); }} base="display: inline-flex; align-items: center; gap: 7px; font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 11px 18px; border-radius: 11px; border: 1.5px solid #DDE1E6; background: #fff; color: #161D1F; white-space: nowrap; transition: all .18s ease;" hover="border-color: #000F37; color: #000F37; transform: translateY(-1px);">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z" /><path d="M6 12v5c0 1 4 3 6 3s6-2 6-3v-5" /></svg>
+                Docentes
+              </Fx>
               {isLoggedIn && (
                 <Fx as="button" onClick={goDashboard} base="font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer; padding: 11px 20px; border-radius: 11px; border: 1.5px solid #DDE1E6; background: #fff; color: #161D1F; white-space: nowrap; transition: all .18s ease;" hover="border-color: #0661FC; color: #0661FC; transform: translateY(-1px);">Mi dashboard</Fx>
               )}
@@ -857,9 +900,68 @@ export default function VocaTwin() {
         </div>
       )}
 
+      {/* ============================== LOGIN DOCENTE ============================== */}
+      {isTeacherLogin && (
+        <div data-screen-label="Login docente" style={css("position: relative; min-height: 100vh; display: grid; place-items: center; padding: 24px; overflow: hidden; animation: vtFadeIn .4s ease both;")}>
+          <div style={css("position: absolute; inset: 0; background: radial-gradient(circle at 50% 0%, #0a2a6b, #000F37 60%);")} />
+          <div style={css("position: absolute; top: -80px; left: -60px; width: 320px; height: 320px; border-radius: 50%; background: radial-gradient(circle, rgba(255,57,92,.3), transparent 70%); animation: vtFloat 7s ease-in-out infinite;")} />
+          <div style={css("position: absolute; bottom: -90px; right: -50px; width: 300px; height: 300px; border-radius: 50%; background: radial-gradient(circle, rgba(61,220,218,.22), transparent 70%); animation: vtFloatB 8s ease-in-out infinite;")} />
+
+          <div style={css("position: relative; width: min(420px, 94vw); background: #fff; border-radius: 26px; padding: 40px; box-shadow: 0 40px 90px rgba(0,0,0,.4); animation: vtPop .5s cubic-bezier(.16,1,.3,1) both;")}>
+            <Fx as="button" onClick={goLanding} base="display: inline-flex; align-items: center; gap: 7px; font-family: inherit; font-size: 13px; font-weight: 700; color: #848D95; background: none; border: none; cursor: pointer; padding: 0; margin-bottom: 22px; transition: color .16s ease;" hover="color: #FF395C;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+              Volver al inicio
+            </Fx>
+
+            <div style={css("display: flex; align-items: center; gap: 12px; margin-bottom: 8px;")}>
+              <span style={css("display: grid; place-items: center; width: 46px; height: 46px; border-radius: 13px; background: #000F37; color: #fff; box-shadow: 0 10px 24px rgba(0,15,55,.3);")}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z" /><path d="M6 12v5c0 1 4 3 6 3s6-2 6-3v-5" /></svg>
+              </span>
+              <div>
+                <h1 style={css("margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -.02em; color: #000F37;")}>Acceso docentes</h1>
+                <p style={css("margin: 2px 0 0; font-size: 13px; color: #848D95;")}>Revisa los resultados de tus secciones</p>
+              </div>
+            </div>
+
+            <div style={css("display: grid; gap: 15px; margin-top: 26px;")}>
+              <div>
+                <label style={css("display: block; font-size: 13px; font-weight: 800; color: #4A4F55; margin-bottom: 7px;")}>Correo institucional</label>
+                <Fx as="input" type="email" value={teacherEmail} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setTeacherEmail(e.target.value); setTeacherError(""); }} placeholder="profesor@colegio.edu" base={`width: 100%; font-family: inherit; font-size: 15px; padding: 14px 16px; border-radius: 12px; border: 2px solid ${teacherError ? "#E3000B" : "#E8EBF0"}; background: #F2F4F8; color: #161D1F; outline: none; transition: border-color .18s ease;`} focus="border-color: #0661FC; background: #fff;" />
+              </div>
+              <div>
+                <label style={css("display: block; font-size: 13px; font-weight: 800; color: #4A4F55; margin-bottom: 7px;")}>Contraseña</label>
+                <Fx as="input" type="password" value={teacherPwd} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setTeacherPwd(e.target.value); setTeacherError(""); }} placeholder="••••••" base={`width: 100%; font-family: inherit; font-size: 15px; padding: 14px 16px; border-radius: 12px; border: 2px solid ${teacherError ? "#E3000B" : "#E8EBF0"}; background: #F2F4F8; color: #161D1F; outline: none; transition: border-color .18s ease;`} focus="border-color: #0661FC; background: #fff;" />
+              </div>
+              {teacherError && (
+                <div style={css("font-size: 13px; font-weight: 700; color: #E3000B; background: rgba(227,0,11,.08); padding: 10px 14px; border-radius: 10px; animation: vtFadeUp .3s ease both;")}>{teacherError}</div>
+              )}
+              <Fx as="button" onClick={doTeacherLogin} base="font-family: inherit; font-size: 16px; font-weight: 800; cursor: pointer; padding: 15px; border-radius: 12px; border: none; background: #000F37; color: #fff; box-shadow: 0 12px 28px rgba(0,15,55,.3); transition: transform .16s ease;" hover="transform: translateY(-2px);" active="transform: scale(.98);">Ingresar al panel docente →</Fx>
+              <p style={css("margin: 0; text-align: center; font-size: 12px; color: #848D95;")}>Demo: cualquier correo y contraseña funcionan.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================== DASHBOARD DOCENTE ============================== */}
+      {isTeacherDashboard && (
+        <TeacherDashboard teacherName={teacherName} onLogout={logout} />
+      )}
+
+      {/* ============================== PANEL DEL ALUMNO (HISTORIAL) ============================== */}
+      {isStudentHome && (
+        <StudentHome
+          userName={userName}
+          chosenCareer={chosenCareer}
+          result={result}
+          onLogout={logout}
+          onRetake={retake}
+          onGoGeneral={goDashboard}
+        />
+      )}
+
       {/* ============================== VENTANA DE DETALLE (tarjeta) ============================== */}
       {modalCard && (
-        <CareerDetailModal card={modalCard} onClose={() => setModalCard(null)} />
+        <CareerDetailModal card={modalCard} onClose={() => setModalCard(null)} onChoose={chooseCareer} />
       )}
     </div>
   );
