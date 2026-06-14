@@ -34,3 +34,10 @@ body {
 @keyframes vtPopBig { 0% { transform: scale(.3) translateY(24px); opacity: 0; } 60% { transform: scale(1.14); opacity: 1; } 80% { transform: scale(.95); } 100% { transform: scale(1) translateY(0); opacity: 1; } }
 @keyframes vtWiggle { 0%,100% { transform: rotate(-2.5deg); } 50% { transform: rotate(2.5deg); } }
 @keyframes vtGlowPulse { 0%,100% { transform: translate(-50%,-50%) scale(1); opacity: .5; } 50% { transform: translate(-50%,-50%) scale(1.18); opacity: .85; } }
+@keyframes vtKenBurns { 0% { transform: scale(1) translate(0,0); } 100% { transform: scale(1.14) translate(-2.5%,-2.5%); } }
+@keyframes vtSlideRight { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes vtSlideLeft { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes vtProgressFill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes vtPulseSoft { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.07); opacity: .85; } }
+@keyframes vtEq { 0%,100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+@keyframes vtCheckPop { 0% { transform: scale(0) rotate(-25deg); opacity: 0; } 60% { transform: scale(1.18) rotate(0deg); } 100% { transform: scale(1) rotate(0deg); opacity: 1; } }

@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { css, Fx } from "./fx";
+import CareerDetailModal from "./CareerDetailModal";
 import {
   CELEBS,
   QUESTIONS,
@@ -13,6 +14,17 @@ import {
 
 type Screen = "landing" | "test" | "results" | "dashboard";
 type DashView = "barras" | "anillo" | "tarjetas";
+
+// Datos visuales de la tarjeta abierta en la ventana de detalle.
+interface CardModal {
+  name: string;
+  cat: string;
+  desc: string;
+  pct: number;
+  color: string;
+  badgeBg: string;
+  rank: string;
+}
 
 const BLOCK = 5;
 
@@ -55,6 +67,7 @@ export default function VocaTwin() {
   const [dashView, setDashView] = useState<DashView>("barras");
   const [testBlock, setTestBlock] = useState(0);
   const [celebration, setCelebration] = useState(false);
+  const [modalCard, setModalCard] = useState<CardModal | null>(null);
 
   // Partículas fijas por tema (se calculan una sola vez).
   const parts = useMemo(
@@ -648,7 +661,14 @@ export default function VocaTwin() {
             </div>
             <div style={css("display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;")}>
               {resultSelected.map((a, i) => (
-                <div key={i} style={{ ...css("position: relative; background: #fff; border-radius: 20px; padding: 24px; box-shadow: 0 12px 30px rgba(0,15,55,.06); animation: vtPop .6s cubic-bezier(.16,1,.3,1) both;"), border: `2px solid ${a.cardBorder}`, animationDelay: a.delay }}>
+                <Fx
+                  key={i}
+                  onClick={() => setModalCard({ name: a.name, cat: a.cat, desc: a.desc, pct: a.pct, color: a.color, badgeBg: a.badgeBg, rank: a.rank })}
+                  base={`position: relative; background: #fff; border: 2px solid ${a.cardBorder}; border-radius: 20px; padding: 24px; box-shadow: 0 12px 30px rgba(0,15,55,.06); cursor: pointer; animation: vtPop .6s cubic-bezier(.16,1,.3,1) both; transition: transform .22s cubic-bezier(.34,1.56,.64,1), box-shadow .22s ease;`}
+                  hover="transform: translateY(-6px) scale(1.035); box-shadow: 0 28px 54px rgba(0,15,55,.17);"
+                  active="transform: scale(.99);"
+                  style={{ animationDelay: a.delay }}
+                >
                   <div style={css("display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;")}>
                     <span style={{ ...css("display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; font-size: 17px; font-weight: 900;"), background: a.badgeBg, color: a.color }}>{a.rank}</span>
                     <span style={{ ...css("font-size: 30px; font-weight: 900; letter-spacing: -.03em;"), color: a.color }}>{a.pct}%</span>
@@ -656,7 +676,8 @@ export default function VocaTwin() {
                   <span style={{ ...css("display: inline-flex; padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: 800; letter-spacing: .03em; margin-bottom: 10px;"), background: a.badgeBg, color: a.color }}>{a.cat}</span>
                   <h4 style={css("margin: 0 0 8px; font-size: 17px; font-weight: 900; color: #161D1F; line-height: 1.22;")}>{a.name}</h4>
                   <p style={css("margin: 0; font-size: 13px; line-height: 1.5; color: #848D95;")}>{a.desc}</p>
-                </div>
+                  <div style={{ ...css("display: flex; align-items: center; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #EEF1F5; font-size: 12px; font-weight: 800;"), color: a.color }}>Toca para ver detalle →</div>
+                </Fx>
               ))}
             </div>
 
@@ -808,7 +829,12 @@ export default function VocaTwin() {
             {dashView === "tarjetas" && (
               <div style={css("display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;")}>
                 {ranking.map((a, i) => (
-                  <Fx key={i} base={`background: #fff; border: 1px solid #DDE1E6; border-top: 4px solid ${a.color}; border-radius: 18px; padding: 22px; box-shadow: 0 2px 0 rgba(0,15,55,.03); opacity: ${a.rowOpacity}; animation: vtFadeUp .55s ease both; animation-delay: ${a.delay}; transition: transform .2s ease, box-shadow .2s ease;`} hover="transform: translateY(-5px); box-shadow: 0 20px 38px rgba(0,15,55,.1);">
+                  <Fx
+                    key={i}
+                    onClick={a.selected ? () => setModalCard({ name: a.name, cat: a.cat, desc: a.desc, pct: a.pct, color: a.color, badgeBg: a.badgeBg, rank: a.rank }) : undefined}
+                    base={`background: #fff; border: 1px solid #DDE1E6; border-top: 4px solid ${a.color}; border-radius: 18px; padding: 22px; box-shadow: 0 2px 0 rgba(0,15,55,.03); opacity: ${a.rowOpacity}; cursor: ${a.selected ? "pointer" : "default"}; animation: vtFadeUp .55s ease both; animation-delay: ${a.delay}; transition: transform .2s ease, box-shadow .2s ease;`}
+                    hover={a.selected ? "transform: translateY(-6px) scale(1.02); box-shadow: 0 24px 44px rgba(0,15,55,.13);" : "transform: translateY(-5px); box-shadow: 0 20px 38px rgba(0,15,55,.1);"}
+                  >
                     <div style={css("display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;")}>
                       <span style={{ ...css("display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; font-size: 15px; font-weight: 900;"), background: a.badgeBg, color: a.badgeColor }}>{a.rank}</span>
                       <span style={{ ...css("font-size: 24px; font-weight: 900; letter-spacing: -.02em;"), color: a.color }}>{a.pct}%</span>
@@ -816,6 +842,9 @@ export default function VocaTwin() {
                     <span style={{ ...css("display: inline-flex; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 800; margin-bottom: 10px;"), background: a.selTagBg, color: a.selTagColor }}>{a.selTag}</span>
                     <h4 style={css("margin: 0 0 6px; font-size: 16px; font-weight: 800; color: #161D1F; line-height: 1.25;")}>{a.name}</h4>
                     <p style={css("margin: 0; font-size: 13px; line-height: 1.5; color: #848D95;")}>{a.desc}</p>
+                    {a.selected && (
+                      <div style={{ ...css("display: flex; align-items: center; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #EEF1F5; font-size: 12px; font-weight: 800;"), color: a.color }}>Toca para ver detalle →</div>
+                    )}
                   </Fx>
                 ))}
               </div>
@@ -826,6 +855,11 @@ export default function VocaTwin() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ============================== VENTANA DE DETALLE (tarjeta) ============================== */}
+      {modalCard && (
+        <CareerDetailModal card={modalCard} onClose={() => setModalCard(null)} />
       )}
     </div>
   );
